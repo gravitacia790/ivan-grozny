@@ -4,7 +4,7 @@
 app/, content/, public/, Dockerfile и файл фиксации зависимостей package-lock.json.
 API.rtf и личные документы из родительской папки в репозиторий не входят.
 
-Репозиторий: https://github.com/gravitacia790/ivan-grozny (закрытый).
+Репозиторий: https://github.com/gravitacia790/ivan-grozny (открытый).
 
 ## Хостинг с поддержкой Next.js / Node.js
 
