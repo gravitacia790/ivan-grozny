@@ -4,23 +4,51 @@ import { instructions, answerFormat, checkedAnswer } from "@/lib/instructions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 type Message = { role: "user" | "assistant"; content: string };
 const limits = new Map<string, { count: number; expires: number }>();
 const reply = (error: string, status: number, extra = {}) => Response.json({ error, ...extra }, { status, headers: { "Cache-Control": "no-store" } });
 
-export async function GET() {
-  return Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true" }, { headers: { "Cache-Control": "no-store" } });
+function allowedOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin) return false;
+    if (parsed.host === request.headers.get("host")) return true;
+    return (process.env.CHAT_ALLOWED_ORIGINS || "").split(",").map(value => value.trim()).filter(Boolean).includes(origin);
+  } catch { return false; }
+}
+
+function withCors(request: Request | undefined, response: Response): Response {
+  if (!request || !allowedOrigin(request)) return response;
+  const origin = request.headers.get("origin");
+  if (origin) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Vary", "Origin");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+    response.headers.set("Access-Control-Max-Age", "600");
+  }
+  return response;
+}
+
+export async function GET(request?: Request) {
+  if (request && !allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
+  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true" }, { headers: { "Cache-Control": "no-store" } }));
+}
+
+export async function OPTIONS(request: Request) {
+  if (!allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
+  return withCors(request, new Response(null, { status: 204 }));
 }
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  // Next may normalize request.url to localhost even when the browser uses 127.0.0.1.
-  // Compare the browser Origin with the actual HTTP Host, not that internal URL.
-  if (origin) {
-    try {
-      if (new URL(origin).host !== request.headers.get("host")) return reply("Запрос разрешён только со страницы сайта.", 403);
-    } catch { return reply("Некорректный источник запроса.", 403); }
-  }
+  return withCors(request, await handlePost(request));
+}
+
+async function handlePost(request: Request) {
+  if (!allowedOrigin(request)) return reply("Запрос разрешён только со страницы сайта.", 403);
   if (!process.env.OPENAI_API_KEY) return reply("ИИ пока не подключён. Попроси учителя проверить подключение.", 503);
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > 24000) return reply("Беседа слишком длинная. Сохрани её и начни новую.", 413);

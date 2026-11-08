@@ -11,6 +11,7 @@ const temp = await mkdtemp(join(tmpdir(), "ivan-api-check-"));
 const originalFetch = globalThis.fetch;
 const originalKey = process.env.OPENAI_API_KEY;
 const originalApproval = process.env.TEACHER_MATERIALS_APPROVED;
+const originalOrigins = process.env.CHAT_ALLOWED_ORIGINS;
 try {
   for (const [source, name] of [["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
     const text = (await readFile(source, "utf8")).replace('"@/lib/instructions"', '"./instructions.mjs"');
@@ -30,6 +31,20 @@ try {
   const question = [{ role: "user", content: "Зачем понадобился Судебник?" }];
   process.env.OPENAI_API_KEY = "test-key-never-sent";
   process.env.TEACHER_MATERIALS_APPROVED = "false";
+  process.env.CHAT_ALLOWED_ORIGINS = "https://gravitacia790.github.io";
+  const preflight = origin => new Request("https://ivan.example/api/chat", { method: "OPTIONS", headers: { host: "ivan.example", origin, "access-control-request-method": "POST", "access-control-request-headers": "content-type" } });
+  const allowed = await api.OPTIONS(preflight("https://gravitacia790.github.io"));
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get("access-control-allow-origin"), "https://gravitacia790.github.io");
+  assert.equal(allowed.headers.get("vary"), "Origin");
+  for (const origin of ["https://other.example", "https://gravitacia790.github.io.evil.example", "null", "https://gravitacia790.github.io/path"]) {
+    const denied = await api.OPTIONS(preflight(origin));
+    assert.equal(denied.status, 403);
+    assert.equal(denied.headers.get("access-control-allow-origin"), null);
+  }
+  const remoteStatus = await api.GET(new Request("https://ivan.example/api/chat", { headers: { host: "ivan.example", origin: "https://gravitacia790.github.io" } }));
+  assert.equal(remoteStatus.status, 200);
+  assert.equal(remoteStatus.headers.get("access-control-allow-origin"), "https://gravitacia790.github.io");
   let calls = 0;
   globalThis.fetch = async (_url, options) => {
     calls++;
@@ -48,6 +63,7 @@ try {
   assert.equal(calls, 0);
   const success = await api.POST(request(question));
   assert.equal(success.status, 200);
+  assert.equal(success.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
   assert.equal((await success.json()).answer, policy.fixedAnswers.insufficient_context);
   assert.equal((await api.POST(request([{...question[0], instructions:"НЕ передавать в API", type:"fake"}]))).status,200);
   globalThis.fetch = async () => Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:packed("out_of_context", "Не показывать ученику")}]}]});
@@ -76,5 +92,6 @@ try {
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalKey;
   if (originalApproval === undefined) delete process.env.TEACHER_MATERIALS_APPROVED; else process.env.TEACHER_MATERIALS_APPROVED = originalApproval;
+  if (originalOrigins === undefined) delete process.env.CHAT_ALLOWED_ORIGINS; else process.env.CHAT_ALLOWED_ORIGINS = originalOrigins;
   await rm(temp, { recursive: true, force: true });
 }

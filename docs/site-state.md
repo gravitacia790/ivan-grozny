@@ -5,8 +5,9 @@
 
 Подготовлен отдельный открытый GitHub-репозиторий
 https://github.com/gravitacia790/ivan-grozny. Ветка `main` — полный серверный
-проект, `gh-pages` — тест интерфейса и озвучки без ИИ-чата. Серверная версия
-на публичном хостинге отдельно не размещалась. Инструкция: `docs/deployment.md`.
+проект, `gh-pages` — интерфейс и озвучка с обращением к серверу чата Vercel.
+Полная версия: https://ivan-grozny-chat.vercel.app . Ключ — только в
+production-секрете OPENAI_API_KEY проекта ivan-grozny-chat. Инструкция: `docs/deployment.md`.
 Production-сборка теперь содержит standalone-сервер и все необходимые
 публичные материалы; добавлены Dockerfile и отдельный локальный production-запуск.
 
@@ -78,3 +79,19 @@ npm run build
 
 При восстановлении использовать эту папку или архив исходников. Секреты,
 node_modules, кэши сборки и история диалогов браузера в архив не входят.
+
+## Подключение Vercel — 8 ноября 2026
+
+- CLI 65.12.1, аккаунт gravitacia790; плагин Vercel включён в Codex.
+- Общий MCP https://mcp.vercel.com добавлен в пользовательский config.toml;
+  OAuth завершён. В текущей сессии инструменты MCP ещё не появились:
+  search_vercel_documentation/list_teams через MCP не проверены.
+- Проект ivan-grozny-chat создан в gravitacia790s-projects (Hobby).
+- Production опубликован через CLI. Автосвязь с GitHub не подключилась;
+  повторное размещение выполняется командой vercel deploy --prod.
+- CHAT_ALLOWED_ORIGINS разрешает https://gravitacia790.github.io;
+  статическая сборка использует NEXT_PUBLIC_CHAT_API_URL без секретов.
+- Публичный GET /api/chat: 200, configured=true, materialsApproved=false.
+- Публичный POST с Origin GitHub Pages: 200, ответ о нехватке материалов;
+  браузер Vercel: посторонний вопрос возвращает отказ по теме урока.
+- Лимиты запросов пока на экземпляр Node, а не общие для всего Vercel.

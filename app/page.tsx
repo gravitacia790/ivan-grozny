@@ -10,6 +10,8 @@ type Screen = "home" | "intro" | "chat";
 const storageKey = "ivan-iv-conversation-v1";
 const staticPreview = process.env.NEXT_PUBLIC_STATIC_PREVIEW === "true";
 const asset = (path: string) => `${process.env.NEXT_PUBLIC_BASE_PATH || ""}${path}`;
+const chatApi = process.env.NEXT_PUBLIC_CHAT_API_URL || asset("/api/chat");
+const chatAvailable = !staticPreview || Boolean(process.env.NEXT_PUBLIC_CHAT_API_URL);
 
 function Ornament({ small = false }: { small?: boolean }) {
   return <span className={`ornament ${small ? "small" : ""}`} aria-hidden="true"><i />✧<i /></span>;
@@ -49,8 +51,8 @@ export default function Home() {
       }
     } catch { setStorageWarning("Браузер не смог восстановить беседу. Скачивай её перед закрытием страницы."); }
     setReady(true);
-    if (staticPreview) setStatus({ configured: false, materialsApproved: false });
-    else fetch(asset("/api/chat")).then(r => r.json()).then(setStatus).catch(() => setStatus({ configured: false, materialsApproved: false }));
+    if (!chatAvailable) setStatus({ configured: false, materialsApproved: false });
+    else fetch(chatApi).then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(setStatus).catch(() => setStatus({ configured: false, materialsApproved: false }));
     return () => controller.current?.abort();
   }, []);
 
@@ -80,7 +82,7 @@ export default function Home() {
   }, [modal]);
 
   async function send(value = draft) {
-    if (staticPreview) { setError("В этой тестовой публикации ИИ-чат ещё не подключён к серверу."); return; }
+    if (!chatAvailable) { setError("В этой тестовой публикации ИИ-чат ещё не подключён к серверу."); return; }
     const question = value.trim();
     if (!question || question.length > 1000 || sending.current) return;
     if (messages.length >= 20) { setError("Достигнут предел беседы: сохрани её и начни новую."); return; }
@@ -88,7 +90,7 @@ export default function Home() {
     controller.current = new AbortController();
     const timeout = setTimeout(() => controller.current?.abort(), 30000);
     try {
-      const response = await fetch(asset("/api/chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [...messages, { role: "user", content: question }], session: session.current }), signal: controller.current.signal });
+      const response = await fetch(chatApi, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [...messages, { role: "user", content: question }], session: session.current }), signal: controller.current.signal });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не удалось получить ответ.");
       if (typeof data.answer !== "string" || !data.answer.trim()) throw new Error("Получен пустой ответ. Попробуй снова.");
@@ -113,7 +115,7 @@ export default function Home() {
       <button className="brand" onClick={() => setScreen("home")} aria-label="На главную"><span className="brand-mark"><Crown size={23} strokeWidth={1.2} /></span><span>РАЗГОВОР С ИСТОРИЕЙ<small>ОБРАЗОВАТЕЛЬНЫЙ ПРОЕКТ</small></span></button>
       <nav aria-label="Основная навигация"><span className="lesson-label">ИСТОРИЯ <b>×</b> ИНФОРМАТИКА</span><span className="grade">7 КЛАСС</span><button className="about-button" onClick={() => setModal("about")}><BookOpen size={16} /> Об уроке</button></nav>
     </header>
-    {staticPreview && <p className="preview-notice" role="status">Тестовая версия для коллег: оформление и озвучка доступны. ИИ-чат заработает после подключения отдельного сервера.</p>}
+    {staticPreview && <p className="preview-notice" role="status">{chatAvailable ? "Тестовая версия для коллег. Ответы ИИ — учебная реконструкция: проверяйте факты по источникам." : "Тестовая версия для коллег: оформление и озвучка доступны. ИИ-чат заработает после подключения отдельного сервера."}</p>}
 
     <main id="main">
       {screen === "home" && <>
@@ -176,7 +178,7 @@ export default function Home() {
           <div className="composer-area">
             {error && <div className="error" role="alert"><p>{error}</p><button onClick={() => send()} disabled={loading || !draft.trim()}>Повторить отправку <RotateCcw size={14} /></button></div>}
             {storageWarning && <p className="storage-warning" role="status">{storageWarning}</p>}
-            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={loading} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={staticPreview || loading || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
+            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={loading} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={!chatAvailable || loading || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
             <div className="composer-hint"><span>Enter — отправить · Shift+Enter — новая строка</span><span>{draft.length} / 1000</span></div>
             <div className="conversation-tools"><button onClick={download} disabled={!messages.length || loading}>{saved ? <Check size={15} /> : <Download size={15} />}{saved ? "Беседа сохранена" : "Сохранить беседу"}</button><button onClick={() => setModal("reset")} disabled={loading || (!messages.length && !draft)}><RotateCcw size={15} /> Начать заново</button><span>{messages.length / 2} / 10 вопросов</span></div>
           </div>

@@ -1,0 +1,10 @@
+.git
+.next
+.next-pages
+node_modules
+out
+.env*
+/API*
+__pycache__
+*.log
+*.tsbuildinfo

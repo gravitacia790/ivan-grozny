@@ -1,6 +1,7 @@
 node_modules/
 .next/
 .next-pages/
+.vercel/
 out/
 .env*
 !.env.example
@@ -12,3 +13,4 @@ next-env.d.ts
 *.pem
 __pycache__/
 *.pyc
+.vercel
