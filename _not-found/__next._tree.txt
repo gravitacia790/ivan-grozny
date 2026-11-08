@@ -1,4 +1,4 @@
-:HL["/ivan-grozny/_next/static/chunks/1kou7e9hceiwd.css","style"]
+:HL["/ivan-grozny/_next/static/chunks/11pub7cu-dzvx.css","style"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"/_not-found","h":96,"c":"$Q2"}]]
-0:{"b":"TpeTRRVswAi82z6eKK7OJ","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"Xz-378FAeRVOD46igaPqF","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
