@@ -106,7 +106,7 @@ async function handlePost(request: Request) {
     const data = await response.json();
     const text = (data.output || []).flatMap((item: { type: string; content?: { type: string; text?: string }[] }) => item.type === "message" ? (item.content || []).filter(c => c.type === "output_text").map(c => c.text || "") : []).join("\n").trim();
     if (!text || data.status !== "completed") return reply("ИИ не завершил ответ. Попробуй сформулировать вопрос короче.", 502);
-    const answer = checkedAnswer(text, materialsApproved);
+    const answer = checkedAnswer(text);
     if (!answer) return reply("Ответ не прошёл проверку формата. Вопрос сохранён — попробуй ещё раз.", 502);
     return Response.json({ answer }, { headers: { "Cache-Control": "no-store" } });
   } catch {
