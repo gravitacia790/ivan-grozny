@@ -11,6 +11,6 @@ const output = join(root, ".next-pages");
 await access(join(output, "index.html"));
 await access(join(output, "media/intro-voice-v1.mp3"));
 const html = await readFile(join(output, "index.html"), "utf8");
-if (!html.includes("/ivan-grozny/_next/") || !html.includes("Тестовая версия для коллег")) throw new Error("Static preview metadata is missing.");
+if (!html.includes("/ivan-grozny/_next/") || !html.includes("Исповедь") || html.includes("Тестовая версия для коллег")) throw new Error("Static page content or asset paths are invalid.");
 await writeFile(join(output, ".nojekyll"), "");
 console.log("GitHub Pages preview prepared in .next-pages/: pages, assets and audio; no server or key included.");
