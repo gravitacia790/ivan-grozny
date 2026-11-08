@@ -152,7 +152,17 @@ export default function Home() {
             <source src={asset("/media/intro.mp4")}  type="video/mp4" onError={() => setVideoMissing(true)} />
             <track kind="captions" src={asset("/media/intro.ru.vtt")}  srcLang="ru" label="Русские" default />
           </video>}
-          {videoMissing && <div className="intro-fallback"><span className="eyebrow">АУДИОВЕРСИЯ ВСТУПЛЕНИЯ</span><h2 className="audio-intro-title">Послушай обращение Ивана IV</h2><figure className="audio-intro-poster"><img src={asset("/media/ivan-gpt-image-2.6-v1.png")}  alt="Статичный ИИ-кадр: Иван IV сидит за столом в царских палатах" /><figcaption>Статичный кадр · GPT Image 2.6</figcaption></figure><audio className="intro-audio" controls preload="metadata" aria-label="Аудиоверсия вступления: синтетический голос Ивана IV" onError={() => setAudioUnavailable(true)}><source src={asset("/media/intro-voice-v1.mp3")}  type="audio/mpeg" />Браузер не поддерживает воспроизведение аудио. Текст обращения доступен ниже.</audio>{audioUnavailable && <p role="status">Не удалось загрузить озвучку. Прочитай текст обращения ниже или перейди к вопросам.</p>}<p className="audio-intro-note">Синтетический голос OpenAI. Изображение статично: видео с движением губ ещё не готово. Нажми кнопку воспроизведения, чтобы послушать обращение.</p><Ornament /><blockquote>{monologue}</blockquote><p>Это художественная реконструкция, а не подлинная речь Ивана IV. Текст ожидает проверки учителем истории.</p><button className="primary" onClick={goChat}>Начать разговор <ArrowRight size={18} /></button></div>}
+          {videoMissing && <div className="intro-fallback">
+            <div className="intro-fallback-heading"><span className="eyebrow">АУДИОВЕРСИЯ ВСТУПЛЕНИЯ</span><h2 className="audio-intro-title">Послушай обращение Ивана IV</h2></div>
+            <div className="intro-media">
+              <figure className="audio-intro-poster"><img src={asset("/media/ivan-gpt-image-2.6-v1.png")} alt="Статичный ИИ-кадр: Иван IV сидит за столом в царских палатах" /><figcaption>Статичный кадр · GPT Image 2.6</figcaption></figure>
+              <audio className="intro-audio" controls preload="metadata" aria-label="Аудиоверсия вступления: синтетический голос Ивана IV" onError={() => setAudioUnavailable(true)}><source src={asset("/media/intro-voice-v1.mp3")} type="audio/mpeg" />Браузер не поддерживает воспроизведение аудио. Текст обращения доступен ниже.</audio>
+              {audioUnavailable && <p role="status">Не удалось загрузить озвучку. Прочитай текст обращения ниже или перейди к вопросам.</p>}
+              <p className="audio-intro-note">Синтетический голос OpenAI. Изображение статично: видео с движением губ ещё не готово. Нажми кнопку воспроизведения, чтобы послушать обращение.</p>
+            </div>
+            <div className="intro-transcript" role="region" aria-label="Текст обращения Ивана IV" tabIndex={0}><Ornament /><blockquote>{monologue}</blockquote><p>Это художественная реконструкция, а не подлинная речь Ивана IV. Текст ожидает проверки учителем истории.</p></div>
+            <div className="intro-fallback-actions"><button className="primary" onClick={goChat}>Начать разговор <ArrowRight size={18} /></button></div>
+          </div>}
           {!videoMissing && <button className="sound-button" onClick={() => setMuted(!muted)} aria-label={muted ? "Включить звук" : "Выключить звук"}>{muted ? <VolumeX /> : <Volume2 />}</button>}
         </div>
         <p className="intro-disclaimer">Голос персонажа — художественный приём. Исторические выводы делай на основе источников.</p>

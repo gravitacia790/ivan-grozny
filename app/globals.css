@@ -116,3 +116,44 @@
   .screen-home .hero-actions .text-link{gap:8px}
   .screen-chat .character{flex-shrink:0}
 }
+
+.intro-media,.intro-transcript{min-width:0}
+.intro-fallback-actions{margin-top:16px}
+.intro-transcript:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
+@media(min-width:601px) and (min-height:600px){
+  .screen-intro{height:100svh;min-height:100svh;display:flex;flex-direction:column}
+  .screen-intro>.header{height:clamp(64px,8svh,96px);flex-shrink:0}
+  .screen-intro>.footer{padding:12px 0;flex-shrink:0}
+  .screen-intro>main{flex:1;min-height:0;display:flex}
+  .screen-intro .intro-page{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px 5% 0}
+  .screen-intro .intro-heading{flex-direction:row;align-items:center;gap:20px;margin-bottom:16px;flex-shrink:0}
+  .screen-intro .intro-heading h1{font-size:clamp(28px,4svh,44px);margin-top:4px}
+  .screen-intro .intro-heading .eyebrow{font-size:8px;letter-spacing:1.5px}
+  .screen-intro .intro-heading>.text-link{min-height:44px}
+  .screen-intro .intro-frame{flex:1;min-height:0;align-items:stretch}
+  .screen-intro .intro-frame video{min-height:0;max-height:100%;height:100%;object-fit:contain}
+  .screen-intro .intro-fallback{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:16px 24px;padding:clamp(16px,2svh,28px);width:100%;max-width:none;min-height:0}
+  .screen-intro .intro-fallback-heading{grid-column:1/-1}
+  .screen-intro .intro-fallback-heading .eyebrow{font-size:8px;letter-spacing:1.5px}
+  .screen-intro .audio-intro-title{font-size:clamp(24px,3.6svh,40px);margin:4px 0 0;line-height:1.2}
+  .screen-intro .intro-media{grid-column:1;grid-row:2/4;display:flex;flex-direction:column;min-height:0}
+  .screen-intro .audio-intro-poster{flex:1;min-height:0;display:flex;flex-direction:column;margin:0 0 12px}
+  .screen-intro .audio-intro-poster img{flex:1;width:100%;height:0;min-height:0;object-fit:contain}
+  .screen-intro .audio-intro-poster figcaption{flex-shrink:0;padding:6px;font-size:8px}
+  .screen-intro .intro-audio{flex-shrink:0;width:100%;height:44px;margin-bottom:8px}
+  .screen-intro .intro-fallback .audio-intro-note{font-size:10px;line-height:1.5;margin:0}
+  .screen-intro .intro-transcript{grid-column:2;grid-row:2;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 12px;text-align:left}
+  .screen-intro .intro-transcript .ornament{margin:0 auto 12px}
+  .screen-intro .intro-transcript blockquote{font-size:clamp(21px,2.7svh,28px);line-height:1.4;margin:0 0 16px}
+  .screen-intro .intro-transcript p{font-size:11px;line-height:1.6;margin:0}
+  .screen-intro .intro-fallback-actions{grid-column:2;grid-row:3;margin:0}
+  .screen-intro .intro-fallback-actions .primary{font-family:var(--font-display),var(--serif);font-size:24px;font-weight:400;min-height:48px;width:100%;padding:10px 16px}
+  .screen-intro .intro-disclaimer{font-size:9px;line-height:1.5;margin:8px 0;flex-shrink:0}
+}
+@media(min-width:2500px) and (min-height:1400px){
+  .screen-intro .intro-heading h1{font-size:64px}
+  .screen-intro .audio-intro-title{font-size:48px}
+  .screen-intro .intro-transcript blockquote{font-size:36px}
+  .screen-intro .intro-fallback .audio-intro-note,.screen-intro .intro-transcript p{font-size:16px}
+  .screen-intro .intro-fallback-actions .primary{font-size:36px;min-height:68px}
+}
