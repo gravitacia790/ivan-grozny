@@ -1,0 +1,29 @@
+{
+  "status": "not_submitted",
+  "user_approved_credits": 84,
+  "reason": "Requires plus plan or higher.",
+  "account_plan": "free",
+  "available_credits": 10,
+  "model": "intone",
+  "params": {
+    "model": "intone",
+    "resolution": "720p",
+    "bitrate_mode": "high",
+    "aspect_ratio": "16:9",
+    "count": 1,
+    "duration": 12,
+    "medias": [
+      {
+        "role": "audio",
+        "value": "88c6c5c9-fe9a-4e23-b627-e2da23dc21b1"
+      }
+    ],
+    "prompt": "Create a restrained photorealistic educational historical talking-head scene using the supplied image as the exact reference for the single character, clothing, seated pose, table, chamber, lighting and framing. The man is Ivan IV in a literary historical reconstruction of Moscow in the sixteenth century. Preserve the man's face and all existing scene details. He speaks directly to the viewer using ONLY the supplied Russian audio recording, with accurate natural mouth movements synchronized to that audio. No newly generated speech or changed words. Calm thoughtful expression, minimal natural blinking and breathing, very subtle head movement, hands rest on the table. A very slow, subtle forward camera push. No cuts, no dramatic gestures, no additional people, no new objects, no music, no text or subtitles. Do not alter the beard or costume, do not modernize the room.",
+    "character_images": [
+      {
+        "id": "6693e75a-b749-47c7-a518-38bceededd01",
+        "type": "media_input"
+      }
+    ]
+  }
+}

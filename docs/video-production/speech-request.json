@@ -1,0 +1,18 @@
+{
+  "model": "gpt-4o-mini-tts",
+  "voice": "onyx",
+  "text_source": "content/intro.ts: monologue",
+  "instructions": "Speak in native Russian, with a mature low male voice, calm and quietly authoritative, clear diction for seventh-grade pupils. Thoughtful and restrained; no shouting, no theatrical exaggeration. Moderate pace, about forty seconds, brief natural pauses. Read only the supplied text.",
+  "response_format": "mp3",
+  "speed": 1,
+  "endpoint": "https://api.openai.com/v1/audio/speech",
+  "documentation": "https://developers.openai.com/api/docs/guides/audio",
+  "tts_documentation": "https://developers.openai.com/api/docs/guides/text-to-speech",
+  "output": "public/media/intro-voice-v1.mp3",
+  "measured_duration_seconds": 42,
+  "measured_sample_rate_hz": 24000,
+  "measured_channels": 1,
+  "measured_bitrate_bps": 128000,
+  "synthetic_voice": true,
+  "lip_sync_created": false
+}

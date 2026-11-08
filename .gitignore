@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+*.log
+.DS_Store
+/API*
+*.pem
+__pycache__/
+*.pyc
