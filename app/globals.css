@@ -13,3 +13,10 @@
 @media(max-width:370px){.hero h1{font-size:54px}.hero h1 em{font-size:52px}.brand{font-size:8px}.brand small{font-size:5px}.hero-art{height:340px}.header nav{gap:0}.about-button{font-size:9px}.chat-status{gap:6px}.conversation-tools{gap:10px}}
 .audio-intro-title{font-size:34px;line-height:1.15;margin:15px 0 24px}.audio-intro-poster{margin:0 0 22px;border:1px solid var(--line);background:#201b18}.audio-intro-poster img{display:block;width:100%;height:auto}.audio-intro-poster figcaption{padding:10px;color:var(--muted);font-size:9px;letter-spacing:1px}.intro-audio{display:block;width:100%;margin:0 0 16px;color-scheme:dark}.intro-fallback .audio-intro-note{font-size:10px;line-height:1.8;margin-bottom:20px}@media(max-width:700px){.audio-intro-title{font-size:28px}.audio-intro-poster figcaption{font-size:8px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
+
+.hero-actions{flex-wrap:wrap;gap:16px 24px}
+.hero-actions .primary,.hero-actions .text-link{font-family:var(--font-display),var(--serif);font-size:24px;font-weight:400;line-height:1.3}
+.hero-actions .primary{min-height:60px;padding:14px 24px}
+.hero-actions .text-link{min-height:48px;padding:10px 0}
+.hero-actions svg{width:22px;height:22px}
+@media(max-width:700px){.hero-actions .primary,.hero-actions .text-link{font-size:22px}}
