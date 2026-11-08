@@ -8,6 +8,8 @@ import { monologue, suggestedQuestions } from "@/content/intro";
 type Message = { role: "user" | "assistant"; content: string };
 type Screen = "home" | "intro" | "chat";
 const storageKey = "ivan-iv-conversation-v1";
+const staticPreview = process.env.NEXT_PUBLIC_STATIC_PREVIEW === "true";
+const asset = (path: string) => `${process.env.NEXT_PUBLIC_BASE_PATH || ""}${path}`;
 
 function Ornament({ small = false }: { small?: boolean }) {
   return <span className={`ornament ${small ? "small" : ""}`} aria-hidden="true"><i />✧<i /></span>;
@@ -47,7 +49,8 @@ export default function Home() {
       }
     } catch { setStorageWarning("Браузер не смог восстановить беседу. Скачивай её перед закрытием страницы."); }
     setReady(true);
-    fetch("/api/chat").then(r => r.json()).then(setStatus).catch(() => setStatus({ configured: false, materialsApproved: false }));
+    if (staticPreview) setStatus({ configured: false, materialsApproved: false });
+    else fetch(asset("/api/chat")).then(r => r.json()).then(setStatus).catch(() => setStatus({ configured: false, materialsApproved: false }));
     return () => controller.current?.abort();
   }, []);
 
@@ -77,6 +80,7 @@ export default function Home() {
   }, [modal]);
 
   async function send(value = draft) {
+    if (staticPreview) { setError("В этой тестовой публикации ИИ-чат ещё не подключён к серверу."); return; }
     const question = value.trim();
     if (!question || question.length > 1000 || sending.current) return;
     if (messages.length >= 20) { setError("Достигнут предел беседы: сохрани её и начни новую."); return; }
@@ -84,7 +88,7 @@ export default function Home() {
     controller.current = new AbortController();
     const timeout = setTimeout(() => controller.current?.abort(), 30000);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [...messages, { role: "user", content: question }], session: session.current }), signal: controller.current.signal });
+      const response = await fetch(asset("/api/chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [...messages, { role: "user", content: question }], session: session.current }), signal: controller.current.signal });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не удалось получить ответ.");
       if (typeof data.answer !== "string" || !data.answer.trim()) throw new Error("Получен пустой ответ. Попробуй снова.");
@@ -109,6 +113,7 @@ export default function Home() {
       <button className="brand" onClick={() => setScreen("home")} aria-label="На главную"><span className="brand-mark"><Crown size={23} strokeWidth={1.2} /></span><span>РАЗГОВОР С ИСТОРИЕЙ<small>ОБРАЗОВАТЕЛЬНЫЙ ПРОЕКТ</small></span></button>
       <nav aria-label="Основная навигация"><span className="lesson-label">ИСТОРИЯ <b>×</b> ИНФОРМАТИКА</span><span className="grade">7 КЛАСС</span><button className="about-button" onClick={() => setModal("about")}><BookOpen size={16} /> Об уроке</button></nav>
     </header>
+    {staticPreview && <p className="preview-notice" role="status">Тестовая версия для коллег: оформление и озвучка доступны. ИИ-чат заработает после подключения отдельного сервера.</p>}
 
     <main id="main">
       {screen === "home" && <>
@@ -125,7 +130,7 @@ export default function Home() {
           <div className="hero-art" data-reveal>
             <span className="art-corner top-left" /><span className="art-corner top-right" /><span className="art-corner bottom-left" /><span className="art-corner bottom-right" />
             {/* The supplied reference is explicitly identified as an illustration. */}
-            <img src="/media/ivan-reference.png" alt="Иллюстративный портрет Ивана IV в узорчатой одежде и меховой шапке" className="portrait" />
+            <img src={asset("/media/ivan-reference.png")}  alt="Иллюстративный портрет Ивана IV в узорчатой одежде и меховой шапке" className="portrait" />
             <div className="portrait-caption"><span>ИВАН IV ВАСИЛЬЕВИЧ</span><small>1533–1584 · годы правления</small></div>
             <span className="art-label">ХУДОЖЕСТВЕННЫЙ ПОРТРЕТ</span>
           </div>
@@ -142,11 +147,11 @@ export default function Home() {
       {screen === "intro" && <section className="intro-page">
         <div className="intro-heading"><div><span className="eyebrow">ПРОЛОГ · ЛИТЕРАТУРНАЯ РЕКОНСТРУКЦИЯ</span><h1 tabIndex={-1} ref={screenTitle}>Прежде чем спросить…</h1></div><button className="text-link" onClick={goChat}>Пропустить вступление <ArrowRight size={18} /></button></div>
         <div className="intro-frame">
-          {!videoMissing && <video autoPlay playsInline controls muted={muted} poster="/media/ivan-reference.png" onError={() => setVideoMissing(true)} onEnded={goChat}>
-            <source src="/media/intro.mp4" type="video/mp4" onError={() => setVideoMissing(true)} />
-            <track kind="captions" src="/media/intro.ru.vtt" srcLang="ru" label="Русские" default />
+          {!videoMissing && <video autoPlay playsInline controls muted={muted} poster={asset("/media/ivan-reference.png")}  onError={() => setVideoMissing(true)} onEnded={goChat}>
+            <source src={asset("/media/intro.mp4")}  type="video/mp4" onError={() => setVideoMissing(true)} />
+            <track kind="captions" src={asset("/media/intro.ru.vtt")}  srcLang="ru" label="Русские" default />
           </video>}
-          {videoMissing && <div className="intro-fallback"><span className="eyebrow">АУДИОВЕРСИЯ ВСТУПЛЕНИЯ</span><h2 className="audio-intro-title">Послушай обращение Ивана IV</h2><figure className="audio-intro-poster"><img src="/media/ivan-gpt-image-2.6-v1.png" alt="Статичный ИИ-кадр: Иван IV сидит за столом в царских палатах" /><figcaption>Статичный кадр · GPT Image 2.6</figcaption></figure><audio className="intro-audio" controls preload="metadata" aria-label="Аудиоверсия вступления: синтетический голос Ивана IV" onError={() => setAudioUnavailable(true)}><source src="/media/intro-voice-v1.mp3" type="audio/mpeg" />Браузер не поддерживает воспроизведение аудио. Текст обращения доступен ниже.</audio>{audioUnavailable && <p role="status">Не удалось загрузить озвучку. Прочитай текст обращения ниже или перейди к вопросам.</p>}<p className="audio-intro-note">Синтетический голос OpenAI. Изображение статично: видео с движением губ ещё не готово. Нажми кнопку воспроизведения, чтобы послушать обращение.</p><Ornament /><blockquote>{monologue}</blockquote><p>Это художественная реконструкция, а не подлинная речь Ивана IV. Текст ожидает проверки учителем истории.</p><button className="primary" onClick={goChat}>Начать разговор <ArrowRight size={18} /></button></div>}
+          {videoMissing && <div className="intro-fallback"><span className="eyebrow">АУДИОВЕРСИЯ ВСТУПЛЕНИЯ</span><h2 className="audio-intro-title">Послушай обращение Ивана IV</h2><figure className="audio-intro-poster"><img src={asset("/media/ivan-gpt-image-2.6-v1.png")}  alt="Статичный ИИ-кадр: Иван IV сидит за столом в царских палатах" /><figcaption>Статичный кадр · GPT Image 2.6</figcaption></figure><audio className="intro-audio" controls preload="metadata" aria-label="Аудиоверсия вступления: синтетический голос Ивана IV" onError={() => setAudioUnavailable(true)}><source src={asset("/media/intro-voice-v1.mp3")}  type="audio/mpeg" />Браузер не поддерживает воспроизведение аудио. Текст обращения доступен ниже.</audio>{audioUnavailable && <p role="status">Не удалось загрузить озвучку. Прочитай текст обращения ниже или перейди к вопросам.</p>}<p className="audio-intro-note">Синтетический голос OpenAI. Изображение статично: видео с движением губ ещё не готово. Нажми кнопку воспроизведения, чтобы послушать обращение.</p><Ornament /><blockquote>{monologue}</blockquote><p>Это художественная реконструкция, а не подлинная речь Ивана IV. Текст ожидает проверки учителем истории.</p><button className="primary" onClick={goChat}>Начать разговор <ArrowRight size={18} /></button></div>}
           {!videoMissing && <button className="sound-button" onClick={() => setMuted(!muted)} aria-label={muted ? "Включить звук" : "Выключить звук"}>{muted ? <VolumeX /> : <Volume2 />}</button>}
         </div>
         <p className="intro-disclaimer">Голос персонажа — художественный приём. Исторические выводы делай на основе источников.</p>
@@ -155,7 +160,7 @@ export default function Home() {
       {screen === "chat" && <section className="conversation">
         <aside className="character" data-reveal>
           <button className="back-link" onClick={() => setScreen("home")}><ArrowLeft size={16} /> В начало</button>
-          <img src="/media/ivan-reference.png" alt="Художественный портрет Ивана IV" />
+          <img src={asset("/media/ivan-reference.png")}  alt="Художественный портрет Ивана IV" />
           <div className="character-info"><Ornament small /><h2>Иван IV</h2><p>Васильевич Грозный</p><span>Великий князь с 1533 года<br />Царь всея Руси с 1547 года</span><small>Художественный портрет · ИИ отвечает текстом</small></div>
         </aside>
         <div className="chat-panel" data-reveal>
@@ -171,7 +176,7 @@ export default function Home() {
           <div className="composer-area">
             {error && <div className="error" role="alert"><p>{error}</p><button onClick={() => send()} disabled={loading || !draft.trim()}>Повторить отправку <RotateCcw size={14} /></button></div>}
             {storageWarning && <p className="storage-warning" role="status">{storageWarning}</p>}
-            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={loading} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={loading || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
+            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={loading} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={staticPreview || loading || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
             <div className="composer-hint"><span>Enter — отправить · Shift+Enter — новая строка</span><span>{draft.length} / 1000</span></div>
             <div className="conversation-tools"><button onClick={download} disabled={!messages.length || loading}>{saved ? <Check size={15} /> : <Download size={15} />}{saved ? "Беседа сохранена" : "Сохранить беседу"}</button><button onClick={() => setModal("reset")} disabled={loading || (!messages.length && !draft)}><RotateCcw size={15} /> Начать заново</button><span>{messages.length / 2} / 10 вопросов</span></div>
           </div>

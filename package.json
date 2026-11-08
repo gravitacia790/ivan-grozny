@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build && node scripts/prepare-standalone.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
     "start": "node scripts/start-production.mjs",
     "start:local": "node scripts/start-production.mjs --local",
     "typecheck": "tsc --noEmit",
