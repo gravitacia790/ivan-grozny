@@ -1,4 +1,4 @@
 :HL["/ivan-grozny/_next/static/chunks/1fu8x4osg93wl.css","style"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"/_not-found","h":96,"c":"$Q2"}]]
-0:{"b":"deYB5odKr4iKI3rM8JZDO","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"p7oAbaFFEbLpL0z7iq6mt","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
