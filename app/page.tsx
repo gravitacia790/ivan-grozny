@@ -158,7 +158,6 @@ export default function Home() {
               <figure className="audio-intro-poster"><img src={asset("/media/ivan-gpt-image-2.6-v1.png")} alt="Статичный ИИ-кадр: Иван IV сидит за столом в царских палатах" /><figcaption>Статичный кадр · GPT Image 2.6</figcaption></figure>
               <audio className="intro-audio" controls preload="metadata" aria-label="Аудиоверсия вступления: синтетический голос Ивана IV" onError={() => setAudioUnavailable(true)}><source src={asset("/media/intro-voice-v1.mp3")} type="audio/mpeg" />Браузер не поддерживает воспроизведение аудио. Текст обращения доступен ниже.</audio>
               {audioUnavailable && <p role="status">Не удалось загрузить озвучку. Прочитай текст обращения ниже или перейди к вопросам.</p>}
-              <p className="audio-intro-note">Синтетический голос OpenAI. Изображение статично: видео с движением губ ещё не готово. Нажми кнопку воспроизведения, чтобы послушать обращение.</p>
             </div>
             <div className="intro-transcript" role="region" aria-label="Текст обращения Ивана IV" tabIndex={0}><Ornament /><blockquote>{monologue}</blockquote><p>Это художественная реконструкция, а не подлинная речь Ивана IV. Текст ожидает проверки учителем истории.</p></div>
             <div className="intro-fallback-actions"><button className="primary" onClick={goChat}>Начать разговор <ArrowRight size={18} /></button></div>
