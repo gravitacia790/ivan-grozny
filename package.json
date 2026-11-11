@@ -9,7 +9,9 @@
     "start": "node scripts/start-production.mjs",
     "start:local": "node scripts/start-production.mjs --local",
     "typecheck": "tsc --noEmit",
-    "test:api": "node scripts/check-api.mjs"
+    "test:api": "node scripts/check-api.mjs",
+    "build:yandex-function": "node scripts/build-yandex-function.mjs",
+    "test:yandex-function": "npm run build:yandex-function && node scripts/check-yandex-function.mjs"
   },
   "dependencies": {
     "next": "^16.1.6",

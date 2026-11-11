@@ -1,6 +1,7 @@
 node_modules
 .next
 .next-pages
+.yandex-function
 out
 .git
 .vercel
