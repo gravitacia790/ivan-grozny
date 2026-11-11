@@ -11,8 +11,8 @@ const originalFetch = globalThis.fetch;
 const envNames = ["AI_PROVIDER", "YANDEX_API_KEY", "YANDEX_FOLDER_ID", "YANDEX_MODEL", "YANDEX_RESEARCH_MODEL", "SOURCE_RECEIPT_SECRET", "OPENAI_API_KEY", "TEACHER_MATERIALS_APPROVED", "CHAT_ALLOWED_ORIGINS"];
 const originalEnv = envNames.map(name => process.env[name]);
 try {
-  for (const [source, name] of [["lib/historical-sources.ts", "historical-sources"], ["lib/source-policy.ts", "source-policy"], ["lib/research.ts", "research"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
-    const text = (await readFile(source, "utf8")).replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research)"/g, '"./$1.mjs"');
+  for (const [source, name] of [["lib/lesson-summary.ts", "lesson-summary"], ["lib/historical-sources.ts", "historical-sources"], ["lib/source-policy.ts", "source-policy"], ["lib/research.ts", "research"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
+    const text = (await readFile(source, "utf8")).replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research|lesson-summary)"/g, '"./$1.mjs"');
     await writeFile(join(temp, `${name}.mjs`), ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
   }
   const api = await import(pathToFileURL(join(temp, "route.mjs")));
@@ -141,9 +141,42 @@ try {
   assert.deepEqual([...new Set(yandexGroups)].sort(), [...sourcePolicy.trustedDomains].sort());
   assert.equal(research.receiptSources(yandexResult.sourceReceipt, answer).length, 2);
   assert.equal((await (await api.GET()).json()).provider, "yandex");
+  const summaryModule = await import(pathToFileURL(join(temp, "lesson-summary.mjs")));
+  const card = { discussed: ["Реформы суда при Иване IV"], openQuestions: [], nextSteps: ["Сравни положения Судебника с учебником."] };
+  let summaryCalls = 0;
+  globalThis.fetch = async (_url, options) => {
+    summaryCalls++;
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.tools, undefined); // Reflection does not trigger paid web searches.
+    assert.equal(payload.text.format.name, "lesson_summary");
+    assert.equal(payload.text.format.strict, true);
+    assert.equal(payload.input.at(-1).role, "assistant");
+    assert.match(payload.instructions, /не от лица царя/);
+    return Response.json(completion(JSON.stringify(card)));
+  };
+  const completed = [...question, {role:"assistant",content:answer}];
+  const summaryResponse = await api.POST(request(completed, {mode:"summary"}));
+  assert.equal(summaryResponse.status, 200);
+  assert.deepEqual((await summaryResponse.json()).summary, card);
+  assert.equal(summaryCalls, 1);
+  assert.equal((await api.POST(request(question, {mode:"summary"}))).status, 400);
+  assert.equal((await api.POST(request(completed, {mode:"unknown"}))).status, 400);
+  assert.equal(summaryCalls, 1);
+  assert.match(summaryModule.summaryText(card), /ИТОГ УРОКА/);
+  for (const invalid of [{...card, grade: 5}, {...card, discussed: []}, {...card, nextSteps: ["https://fake.example"]}, {...card, nextSteps: ["x".repeat(221)]}]) {
+    assert.equal(summaryModule.checkedSummary(invalid), null);
+  }
+  process.env.AI_PROVIDER = "openai";
+  process.env.OPENAI_API_KEY = "test-key-never-sent";
+  assert.deepEqual((await (await api.POST(request(completed, {mode:"summary"}))).json()).summary, card);
+  process.env.AI_PROVIDER = "yandex";
+  globalThis.fetch = async () => Response.json(completion(JSON.stringify({...card, grade:5})));
+  assert.equal((await api.POST(request(completed, {mode:"summary"}))).status, 502);
+  globalThis.fetch = async () => Response.json({error:{}}, {status:429});
+  assert.equal((await api.POST(request(completed, {mode:"summary"}))).status, 503);
   delete process.env.YANDEX_FOLDER_ID;
   assert.equal((await api.POST(request(question))).status, 503);
-  console.log("API checks passed: forced trusted web search, two hosts, no fabricated references, hidden bibliography, requested exact bibliography, signed provenance, validation/CORS/rate limits and upstream failures.");
+  console.log("API checks passed: forced trusted web search, two hosts, no fabricated references, hidden bibliography, requested exact bibliography, signed provenance, validation/CORS/rate limits, lesson summaries for both providers and upstream failures.");
 } finally {
   globalThis.fetch=originalFetch;
   envNames.forEach((name,i) => {if(originalEnv[i] === undefined) delete process.env[name];else process.env[name]=originalEnv[i]});

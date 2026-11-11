@@ -6,9 +6,12 @@ import { ArrowDown, ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Crown,
 import { monologue, suggestedQuestions } from "@/content/intro";
 import { safeReferences, type SourceReference } from "@/lib/source-policy";
 
+import { checkedSummary, summarySections, summaryText, type LessonSummary } from "@/lib/lesson-summary";
+
 type Message = { role: "user" | "assistant"; content: string; sourceReceipt?: string; sources?: SourceReference[] };
 type Screen = "home" | "intro" | "chat";
 const storageKey = "ivan-iv-conversation-v1";
+const summaryStorageKey = `${storageKey}-summary`;
 const staticPreview = process.env.NEXT_PUBLIC_STATIC_PREVIEW === "true";
 const asset = (path: string) => `${process.env.NEXT_PUBLIC_BASE_PATH || ""}${path}`;
 const chatApi = process.env.NEXT_PUBLIC_CHAT_API_URL || asset("/api/chat");
@@ -23,6 +26,10 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<LessonSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+  const busy = loading || summaryLoading;
   const [error, setError] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
   const [ready, setReady] = useState(false);
@@ -36,6 +43,7 @@ export default function Home() {
   const input = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const screenTitle = useRef<HTMLHeadingElement>(null);
+  const summaryTitle = useRef<HTMLHeadingElement>(null);
   const session = useRef("");
   const sending = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -48,7 +56,16 @@ export default function Home() {
       const raw = localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length <= 22 && parsed.length % 2 === 0 && parsed.every((m, i) => m && m.role === (i % 2 === 0 ? "user" : "assistant") && typeof m.content === "string" && m.content.length <= 5000)) setMessages(parsed);
+        if (Array.isArray(parsed) && parsed.length <= 22 && parsed.length % 2 === 0 && parsed.every((m, i) => m && m.role === (i % 2 === 0 ? "user" : "assistant") && typeof m.content === "string" && m.content.length <= 5000)) {
+          setMessages(parsed);
+          const stored = localStorage.getItem(summaryStorageKey);
+          if (stored) {
+            try {
+              const card = JSON.parse(stored);
+              if (card.conversation === JSON.stringify(parsed)) setSummary(checkedSummary(card.summary));
+            } catch { /* Ignore an invalid or outdated card; keep the conversation. */ }
+          }
+        }
       }
     } catch { setStorageWarning("Браузер не смог восстановить беседу. Скачивай её перед закрытием страницы."); }
     setReady(true);
@@ -59,9 +76,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
-    try { localStorage.setItem(storageKey, JSON.stringify(messages)); }
+    try { localStorage.setItem(storageKey, JSON.stringify(messages));
+      if (summary) localStorage.setItem(summaryStorageKey, JSON.stringify({ conversation: JSON.stringify(messages), summary }));
+      else localStorage.removeItem(summaryStorageKey); }
     catch { setStorageWarning("Беседа не сохраняется в этом браузере. Используй кнопку «Сохранить беседу»."); }
-  }, [messages, ready]);
+  }, [messages, summary, ready]);
 
   useEffect(() => {
     if (root.current?.querySelector("[data-reveal]") && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -70,7 +89,13 @@ export default function Home() {
     }
   }, [screen]);
 
-  useEffect(() => { if (screen === "chat") end.current?.scrollIntoView({ block: "nearest", behavior: "instant" }); }, [messages, loading, screen]);
+  useEffect(() => { if (screen === "chat") end.current?.scrollIntoView({ block: "nearest", behavior: "instant" }); }, [messages, loading, summary, summaryLoading, screen]);
+  useEffect(() => {
+    if (summary && screen === "chat") {
+      summaryTitle.current?.focus({ preventScroll: true });
+      summaryTitle.current?.closest("section")?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  }, [summary, screen]);
   useEffect(() => { if (screen !== "home") screenTitle.current?.focus(); }, [screen]);
   useEffect(() => {
     if (modal) {
@@ -96,13 +121,31 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Не удалось получить ответ.");
       if (typeof data.answer !== "string" || !data.answer.trim()) throw new Error("Получен пустой ответ. Попробуй снова.");
       setMessages(previous => [...previous, { role: "user", content: question }, { role: "assistant", content: data.answer, sourceReceipt: typeof data.sourceReceipt === "string" && data.sourceReceipt.length <= 10000 ? data.sourceReceipt : undefined, sources: safeReferences(data.sources) }]);
-      setDraft("");
+      setDraft(""); setSummary(null); setSummaryError("");
     } catch (e) { setError(e instanceof Error && e.name !== "AbortError" ? e.message : "Время ожидания истекло. Вопрос сохранён — попробуй ещё раз."); }
     finally { clearTimeout(timeout); sending.current = false; setLoading(false); input.current?.focus(); }
   }
 
+  async function makeSummary() {
+    if (!chatAvailable || !messages.length || sending.current || summary) return;
+    sending.current = true; setSummaryLoading(true); setSummaryError("");
+    controller.current = new AbortController();
+    const timeout = setTimeout(() => controller.current?.abort(), 30000);
+    try {
+      const response = await fetch(chatApi, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "summary", messages: messages.map(({ role, content }) => ({ role, content })), session: session.current }),
+        signal: controller.current.signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Не удалось составить итог урока.");
+      const card = checkedSummary(data.summary);
+      if (!card) throw new Error("Итог не прошёл проверку. Попробуй ещё раз.");
+      setSummary(card);
+    } catch (e) { setSummaryError(e instanceof Error && e.name !== "AbortError" ? e.message : "Не удалось дождаться итога. Беседа сохранена — попробуй ещё раз."); }
+    finally { clearTimeout(timeout); sending.current = false; setSummaryLoading(false); }
+  }
+
   function download() {
-    const text = ["Исповедь Ивана Грозного", "Учебная ИИ-реконструкция. Ответы требуют проверки по источникам.", new Date().toLocaleString("ru-RU"), "", ...messages.map(m => `${m.role === "user" ? "Ученик" : "Иван IV (ИИ)"}: ${m.content}\n${safeReferences(m.sources).map(source => `Источник: ${source.title}. ${source.url}`).join("\n")}\n`)].join("\n");
+    const text = ["Исповедь Ивана Грозного", "Учебная ИИ-реконструкция. Ответы требуют проверки по источникам.", new Date().toLocaleString("ru-RU"), "", ...messages.map(m => `${m.role === "user" ? "Ученик" : "Иван IV (ИИ)"}: ${m.content}\n${safeReferences(m.sources).map(source => `Источник: ${source.title}. ${source.url}`).join("\n")}\n`), ...(summary ? ["", summaryText(summary)] : [])].join("\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = "Беседа-с-Иваном-IV.txt"; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000); setSaved(true); setTimeout(() => setSaved(false), 2500);
@@ -178,17 +221,27 @@ export default function Home() {
           <div className="chat-heading"><div><span className="eyebrow">ДИАЛОГ С ЭПОХОЙ</span><h1 tabIndex={-1} ref={screenTitle}>Спроси государя</h1></div><Feather className="heading-feather" size={32} strokeWidth={1} /></div>
           <div className="chat-status"><span className={`status-dot ${status?.configured ? "connected" : ""}`} />{status === null ? "Проверяем подключение…" : status.configured ? "Ключ ИИ настроен" : "ИИ пока не подключён"}<span className="status-divider">/</span><span>Текстовый разговор</span></div>
           <div className="messages" role="log" aria-label="Переписка с Иваном IV" aria-live="polite" aria-relevant="additions" aria-busy={loading}>
-            {messages.length === 0 && <div className="empty-chat"><span className="quill-mark"><Feather size={28} strokeWidth={1.1} /></span><h2>У каждого решения есть история</h2><p>Начни с вопроса, который тебя волнует.<br />Не бойся уточнять и спорить с аргументами.</p><div className="suggestions">{suggestedQuestions.map((q, i) => <button key={q} disabled={loading} onClick={() => { setDraft(q); input.current?.focus(); }}><span>0{i + 1}</span>{q}<ArrowRight size={15} /></button>)}</div></div>}
+            {messages.length === 0 && <div className="empty-chat"><span className="quill-mark"><Feather size={28} strokeWidth={1.1} /></span><h2>У каждого решения есть история</h2><p>Начни с вопроса, который тебя волнует.<br />Не бойся уточнять и спорить с аргументами.</p><div className="suggestions">{suggestedQuestions.map((q, i) => <button key={q} disabled={busy} onClick={() => { setDraft(q); input.current?.focus(); }}><span>0{i + 1}</span>{q}<ArrowRight size={15} /></button>)}</div></div>}
             {messages.map((message, i) => <article className={`message ${message.role}`} key={i}><span className="message-author">{message.role === "user" ? "ТВОЙ ВОПРОС" : "ИВАН IV · ИИ-РЕКОНСТРУКЦИЯ"}</span><p>{message.content}</p>{message.role === "assistant" && <>{safeReferences(message.sources).length > 0 && <div className="message-sources" aria-label="Источники ответа"><span>Источники:</span>{safeReferences(message.sources).map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{source.title}</a>)}</div>}<small>Проверь утверждения по историческим источникам.</small></>}</article>)}
             {loading && <div className="pending"><p><span>Твой вопрос</span>{draft}</p><div><LoaderCircle size={17} className="spin" /> Государь размышляет над ответом…</div></div>}
+            {summaryLoading && <p className="summary-pending" role="status"><LoaderCircle size={17} className="spin" /> Составляем итог твоей беседы…</p>}
+            {summary && <section className="lesson-summary" aria-labelledby="summary-title">
+              <span className="eyebrow">ТВОЯ РАБОТА НА УРОКЕ</span><h2 id="summary-title" ref={summaryTitle} tabIndex={-1}>Итог урока</h2>
+              <p className="summary-note">По нашей беседе. Утверждения ИИ стоит проверить по источникам.</p>
+              {summarySections.map(([key, title]) => <div className="summary-section" key={key}><h3>{title}</h3>
+                {summary[key].length ? <ul>{summary[key].map((item, i) => <li key={i}>{item}</li>)}</ul> : <p>Открытые вопросы в беседе не отмечены.</p>}
+              </div>)}
+              <p className="summary-note">Итог сохранится вместе с перепиской. Продолжишь разговор — составь новый итог.</p>
+            </section>}
             <div ref={end} />
           </div>
           <div className="composer-area">
             {error && <div className="error" role="alert"><p>{error}</p><button onClick={() => send()} disabled={loading || !draft.trim()}>Повторить отправку <RotateCcw size={14} /></button></div>}
+            {summaryError && <div className="error" role="alert"><p>{summaryError}</p><button onClick={() => void makeSummary()} disabled={busy}>Повторить итог <RotateCcw size={14} /></button></div>}
             {storageWarning && <p className="storage-warning" role="status">{storageWarning}</p>}
-            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={loading} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={!chatAvailable || loading || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
+            <form onSubmit={event => { event.preventDefault(); void send(); }} className="composer"><label className="sr-only" htmlFor="question">Что ты хочешь узнать о правлении Ивана IV?</label><textarea ref={input} id="question" placeholder="Что ты хочешь узнать о правлении Ивана IV?" value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} disabled={busy} rows={2} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button type="submit" className="send-button" disabled={!chatAvailable || busy || !draft.trim() || !ready} aria-label="Отправить вопрос">{loading ? <LoaderCircle size={20} className="spin" /> : <Send size={20} />}</button></form>
             <div className="composer-hint"><span>Enter — отправить · Shift+Enter — новая строка</span><span>{draft.length} / 1000</span></div>
-            <div className="conversation-tools"><button onClick={download} disabled={!messages.length || loading}>{saved ? <Check size={15} /> : <Download size={15} />}{saved ? "Беседа сохранена" : "Сохранить беседу"}</button><button onClick={() => setModal("reset")} disabled={loading || (!messages.length && !draft)}><RotateCcw size={15} /> Начать заново</button><span>{messages.length / 2} / 10 вопросов</span></div>
+            <div className="conversation-tools"><button onClick={() => void makeSummary()} disabled={!chatAvailable || !ready || !messages.length || busy || Boolean(summary)}><BookOpen size={15} />{summaryLoading ? "Готовим итог…" : summary ? "Итог готов" : "Итог урока"}</button><button onClick={download} disabled={!messages.length || busy}>{saved ? <Check size={15} /> : <Download size={15} />}{saved ? "Беседа сохранена" : "Сохранить беседу"}</button><button onClick={() => setModal("reset")} disabled={busy || (!messages.length && !draft)}><RotateCcw size={15} /> Начать заново</button><span>{messages.length / 2} / 10 вопросов</span></div>
           </div>
           <div className="ai-notice"><ShieldCheck size={17} /><p>Учебная ИИ-реконструкция. Ответы могут содержать ошибки — проверяй факты по историческим источникам.</p></div>
         </div>
@@ -196,6 +249,6 @@ export default function Home() {
     </main>
     <footer className="footer"><span>ИСТОРИЯ НЕ ДАЁТ ГОТОВЫХ ОТВЕТОВ. ОНА УЧИТ ЗАДАВАТЬ ВОПРОСЫ.</span><span>XVI <span className="footer-star">✧</span> XXI</span></footer>
 
-    <dialog ref={dialog} className="modal" onCancel={event => { event.preventDefault(); setModal(null); }} onClick={event => { if (event.target === dialog.current) setModal(null); }}><div className="modal-content"><button className="modal-close" onClick={() => setModal(null)} aria-label="Закрыть"><X size={21} /></button>{modal === "about" ? <><span className="eyebrow">ИСТОРИЯ × ИНФОРМАТИКА · 7 КЛАСС</span><h2>Разговор, который учит думать</h2><p>Перед тобой литературный образ Ивана IV, ответы которого создаёт нейросеть. Он помогает задавать вопросы о прошлом, но не заменяет исторические источники.</p><ol><li>Сформулируй вопрос о правлении Ивана IV.</li><li>Отдели в ответе факты от оценок и предполагаемых мотивов.</li><li>Сравни ответ с учебником и материалами учителя.</li><li>Сохрани беседу и обсуди выводы в группе.</li></ol><p>Не вводи имена, контакты и другие личные данные. Текст вопросов и предыдущих реплик отправляется OpenAI для ответа. Беседа хранится в этом браузере; её можно скачать или удалить кнопкой «Начать заново».</p><p className="modal-note">Вступление доступно как аудиоверсия: синтетический голос и статичный ИИ-кадр. Видео с движением губ ещё не готово. Монолог и исторические материалы требуют согласования учителем.</p><button className="primary" onClick={() => { setModal(null); goChat(); }}>К вопросам <MessageSquare size={17} /></button></> : <><span className="eyebrow">НОВАЯ БЕСЕДА</span><h2>Начать с чистого листа?</h2><p>Текущая переписка и набранный вопрос будут удалены из этого браузера. Сначала можно скачать беседу.</p><div className="modal-actions"><button className="secondary" onClick={() => setModal(null)}>Продолжить беседу</button><button className="primary" onClick={() => { setMessages([]); setDraft(""); setError(""); setModal(null); input.current?.focus(); }}>Начать заново</button></div></>}</div></dialog>
+    <dialog ref={dialog} className="modal" onCancel={event => { event.preventDefault(); setModal(null); }} onClick={event => { if (event.target === dialog.current) setModal(null); }}><div className="modal-content"><button className="modal-close" onClick={() => setModal(null)} aria-label="Закрыть"><X size={21} /></button>{modal === "about" ? <><span className="eyebrow">ИСТОРИЯ × ИНФОРМАТИКА · 7 КЛАСС</span><h2>Разговор, который учит думать</h2><p>Перед тобой литературный образ Ивана IV, ответы которого создаёт нейросеть. Он помогает задавать вопросы о прошлом, но не заменяет исторические источники.</p><ol><li>Сформулируй вопрос о правлении Ивана IV.</li><li>Отдели в ответе факты от оценок и предполагаемых мотивов.</li><li>Сравни ответ с учебником и материалами учителя.</li><li>Сохрани беседу и обсуди выводы в группе.</li></ol><p>Не вводи имена, контакты и другие личные данные. Текст вопросов и предыдущих реплик отправляется подключённому сервису ИИ для ответа или итога урока. Беседа хранится в этом браузере; её можно скачать или удалить кнопкой «Начать заново».</p><p className="modal-note">Вступление доступно как аудиоверсия: синтетический голос и статичный ИИ-кадр. Видео с движением губ ещё не готово. Монолог и исторические материалы требуют согласования учителем.</p><button className="primary" onClick={() => { setModal(null); goChat(); }}>К вопросам <MessageSquare size={17} /></button></> : <><span className="eyebrow">НОВАЯ БЕСЕДА</span><h2>Начать с чистого листа?</h2><p>Текущая переписка, итог урока и набранный вопрос будут удалены из этого браузера. Сначала можно скачать беседу.</p><div className="modal-actions"><button className="secondary" onClick={() => setModal(null)}>Продолжить беседу</button><button className="primary" onClick={() => { setMessages([]); setSummary(null); setSummaryError(""); setDraft(""); setError(""); setModal(null); input.current?.focus(); }}>Начать заново</button></div></>}</div></dialog>
   </div>;
 }

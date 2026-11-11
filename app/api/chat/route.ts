@@ -1,3 +1,4 @@
+import { checkedSummary, summaryFormat, summaryInstructions } from "@/lib/lesson-summary";
 import { instructions, answerFormatFor, checkedReply, fixedAnswers } from "@/lib/instructions";
 
 import { researchDomainGroups } from "@/lib/source-policy";
@@ -79,8 +80,11 @@ async function handlePost(request: Request) {
     body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch { return reply("Не удалось прочитать вопрос.", 400); }
   if (!body || !Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 21) return reply("Сохрани беседу и начни новую: достигнут предел сообщений.", 400);
+  if (body.mode !== undefined && body.mode !== "summary") return reply("Неизвестный режим запроса.", 400);
+  const isSummary = body.mode === "summary";
+  if (isSummary && (body.messages.length < 2 || body.messages.length > 20 || body.messages.length % 2 !== 0)) return reply("Для итога нужна завершённая беседа.", 400);
   const messages: Message[] = body.messages;
-  if (messages.some((m, i) => !m || m.role !== (i % 2 === 0 ? "user" : "assistant") || typeof m.content !== "string" || !m.content.trim() || m.content.length > (m.role === "user" ? 1000 : 5000)) || messages.at(-1)?.role !== "user") return reply("Проверь вопрос: не больше 1000 символов.", 400);
+  if (messages.some((m, i) => !m || m.role !== (i % 2 === 0 ? "user" : "assistant") || typeof m.content !== "string" || !m.content.trim() || m.content.length > (m.role === "user" ? 1000 : 5000)) || messages.at(-1)?.role !== (isSummary ? "assistant" : "user")) return reply("Проверь вопрос: не больше 1000 символов.", 400);
   // A global ceiling cannot be bypassed by changing the anonymous session ID.
   // Per-process limit is appropriate for one local classroom server.
   const now = Date.now();
@@ -97,7 +101,7 @@ async function handlePost(request: Request) {
     const question = messages.at(-1)!.content;
     const wantsSources = requestsBibliography(question);
     const previous = messages.at(-2);
-    if (asksForSources(question) && previous?.role === "assistant") {
+    if (!isSummary && asksForSources(question) && previous?.role === "assistant") {
       const sources = receiptSources(body.sourceReceipt, previous.content);
       if (sources.length) {
         const answer = "Вот публикации, на коих основан мой предыдущий ответ.";
@@ -105,7 +109,7 @@ async function handlePost(request: Request) {
       }
       return json({ answer: "Для прежнего ответа проверяемый список не сохранён. Задай исторический вопрос заново, дабы я сверил свидетельства и назвал источники." });
     }
-    if (asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
+    if (!isSummary && asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
     const input = messages.map(({ role, content }) => ({ role, content }));
     const upstream = (payload: object, timeout: number) => fetch(provider.url, {
       method: "POST",
@@ -113,6 +117,22 @@ async function handlePost(request: Request) {
       body: JSON.stringify({ model: provider.model, store: false, ...payload }),
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)])
     });
+    if (isSummary) {
+      const response = await upstream({ instructions: summaryInstructions, input,
+        max_output_tokens: 2000, text: { format: summaryFormat },
+        ...(provider.model.startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {})
+      }, 25000);
+      if (!response.ok) return reply("Не удалось составить итог урока. Попробуй позже; беседа сохранена.", 503);
+      const data = await response.json();
+      const text = (data.output || []).filter((item: { type: string }) => item.type === "message")
+        .flatMap((item: { content?: { type: string; text?: string }[] }) => item.content || [])
+        .filter((item: { type: string }) => item.type === "output_text").map((item: { text?: string }) => item.text || "").join("");
+      let value;
+      try { value = JSON.parse(text); } catch { return reply("Итог не прошёл проверку формата. Попробуй ещё раз.", 502); }
+      const summary = checkedSummary(value);
+      if (data.status !== "completed" || !summary) return reply("Итог не прошёл проверку формата. Попробуй ещё раз.", 502);
+      return json({ summary });
+    }
     const domainGroups = provider.yandex ? researchDomainGroups.flatMap(group => Array.from({ length: Math.ceil(group.length / 5) }, (_, i) => group.slice(i * 5, i * 5 + 5))) : researchDomainGroups;
     const searchResponses = await Promise.all(domainGroups.map(domains => upstream({
       model: provider.researchModel,
@@ -164,6 +184,6 @@ async function handlePost(request: Request) {
     return json({ answer: checked.answer, sourceReceipt: sourceReceipt(checked.answer, sources), ...(wantsSources ? { sources } : {}) });
   } catch (error) {
     console.error("chat upstream failure", error instanceof Error ? error.name : "unknown");
-    return reply("Время ожидания истекло или нет связи с ИИ. Вопрос сохранён — можно повторить отправку.", 504);
+    return reply(isSummary ? "Не удалось дождаться итога урока. Беседа сохранена — попробуй ещё раз." : "Время ожидания истекло или нет связи с ИИ. Вопрос сохранён — можно повторить отправку.", 504);
   }
 }
