@@ -1,10 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { instructions, answerFormat, checkedReply } from "@/lib/instructions";
+import { instructions, answerFormatFor, checkedReply, fixedAnswers } from "@/lib/instructions";
+
+import { researchDomainGroups } from "@/lib/source-policy";
+import { researchInstructions, extractResearch, independentSources, asksForSources, requestsBibliography, sourceReceipt, receiptSources } from "@/lib/research";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 type Message = { role: "user" | "assistant"; content: string };
 const limits = new Map<string, { count: number; expires: number }>();
 const reply = (error: string, status: number, extra = {}) => Response.json({ error, ...extra }, { status, headers: { "Cache-Control": "no-store" } });
@@ -35,7 +38,7 @@ function withCors(request: Request | undefined, response: Response): Response {
 
 export async function GET(request?: Request) {
   if (request && !allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
-  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "primary_sources_xvi_xvii" }, { headers: { "Cache-Control": "no-store" } }));
+  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "trusted_web_search", sourcesOnRequest: true }, { headers: { "Cache-Control": "no-store" } }));
 }
 
 export async function OPTIONS(request: Request) {
@@ -83,17 +86,52 @@ async function handlePost(request: Request) {
   try {
     const materials = await readFile(join(process.cwd(), "content/teacher-materials.md"), "utf8");
     const materialsApproved = process.env.TEACHER_MATERIALS_APPROVED === "true";
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const json = (value: unknown) => Response.json(value, { headers: { "Cache-Control": "no-store" } });
+    const question = messages.at(-1)!.content;
+    const wantsSources = requestsBibliography(question);
+    const previous = messages.at(-2);
+    if (asksForSources(question) && previous?.role === "assistant") {
+      const sources = receiptSources(body.sourceReceipt, previous.content);
+      if (sources.length) {
+        const answer = "Вот публикации, на коих основан мой предыдущий ответ.";
+        return json({ answer, sources, sourceReceipt: sourceReceipt(answer, sources) });
+      }
+      return json({ answer: "Для прежнего ответа проверяемый список не сохранён. Задай исторический вопрос заново, дабы я сверил свидетельства и назвал источники." });
+    }
+    if (asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
+    const input = messages.map(({ role, content }) => ({ role, content }));
+    const upstream = (payload: object, timeout: number) => fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4.1-mini", store: false,
-        instructions: instructions(materials, materialsApproved),
-        input: messages.map(({ role, content }) => ({ role, content })),
-        max_output_tokens: 700, text: { format: answerFormat }
-      }),
-      signal: AbortSignal.timeout(25000)
+      body: JSON.stringify({ model: process.env.OPENAI_MODEL || "gpt-5-mini", store: false, ...payload }),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)])
     });
+    const searchResponses = await Promise.all(researchDomainGroups.map(domains => upstream({
+      model: process.env.OPENAI_RESEARCH_MODEL || "gpt-5-mini", reasoning: { effort: "low" },
+      instructions: researchInstructions,
+      input,
+      tools: [{ type: "web_search", filters: { allowed_domains: domains }, search_context_size: "medium" }],
+      tool_choice: "required", include: ["web_search_call.action.sources"], max_output_tokens: 3000
+    }, 38000)));
+    let response = searchResponses.find(result => !result.ok) || searchResponses[0];
+    let research;
+    if (response.ok) {
+      const data = await Promise.all(searchResponses.map(result => result.json()));
+      if (data.some(result => result.status !== "completed")) return reply("Поиск не завершён. Вопрос сохранён — попробуй ещё раз.", 502);
+      const parts = data.map(extractResearch);
+      if (parts.every(part => part.text.trim() === "OUT_OF_CONTEXT")) return json({ answer: fixedAnswers.out_of_context });
+      if (parts.every(part => part.text.trim() === "CLARIFICATION")) return json({ answer: fixedAnswers.clarification });
+      const usable = parts.filter(part => part.searched && part.sources.length);
+      const unique = [...new Map(usable.flatMap(part => part.sources).map(source => [source.url, source])).values()];
+      research = { text: usable.map(part => part.text).join("\n\n"), sources: unique.map((source, i) => ({ ...source, id: `web-${i + 1}` })) };
+      if (!independentSources(research.sources)) return json({ answer: fixedAnswers.insufficient_context });
+      response = await upstream({
+        instructions: instructions(materials, materialsApproved, research.text, research.sources),
+        input, max_output_tokens: 1800,
+        ...((process.env.OPENAI_MODEL || "gpt-5-mini").startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {}),
+        text: { format: answerFormatFor(research.sources.map(source => source.id)) }
+      }, 17000);
+    }
     if (!response.ok) {
       if (response.status === 401) return reply("Сервис ИИ не принял ключ доступа. Попроси учителя проверить ключ OpenAI на сервере.", 503);
       if (response.status === 403 || response.status === 404) return reply("У сервера нет доступа к выбранной модели ИИ. Сообщи учителю.", 503);
@@ -106,10 +144,14 @@ async function handlePost(request: Request) {
     const data = await response.json();
     const text = (data.output || []).flatMap((item: { type: string; content?: { type: string; text?: string }[] }) => item.type === "message" ? (item.content || []).filter(c => c.type === "output_text").map(c => c.text || "") : []).join("\n").trim();
     if (!text || data.status !== "completed") return reply("ИИ не завершил ответ. Попробуй сформулировать вопрос короче.", 502);
-    const checked = checkedReply(text);
+    const checked = checkedReply(text, research?.sources.map(source => source.id) || []);
     if (!checked) return reply("Ответ не прошёл проверку формата. Вопрос сохранён — попробуй ещё раз.", 502);
-    return Response.json(checked, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+    const sources = (research?.sources || []).filter(source => checked.sourceIds.includes(source.id));
+    if (!checked.sourceIds.length) return json({ answer: checked.answer });
+    if (!independentSources(sources)) return json({ answer: fixedAnswers.insufficient_context });
+    return json({ answer: checked.answer, sourceReceipt: sourceReceipt(checked.answer, sources), ...(wantsSources ? { sources } : {}) });
+  } catch (error) {
+    console.error("chat upstream failure", error instanceof Error ? error.name : "unknown");
     return reply("Время ожидания истекло или нет связи с ИИ. Вопрос сохранён — можно повторить отправку.", 504);
   }
 }
