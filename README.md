@@ -4,8 +4,10 @@
 7 класс. Next.js, React, TypeScript, CSS, GSAP. Без регистрации учеников.
 
 Посмотреть тестовую версию: https://gravitacia790.github.io/ivan-grozny/
-Интерфейс опубликован из ветки `gh-pages`, чат работает через сервер Vercel:
-https://ivan-grozny-chat.vercel.app . Полные исходники находятся в `main`.
+Интерфейс опубликован из ветки `gh-pages`, сервер чата работает в Yandex Cloud
+Functions: https://functions.yandexcloud.net/d4e15h0kkhld9p24dqgn .
+Модель — Alice AI LLM через Yandex AI Studio; ключ хранится в Lockbox.
+Полные исходники находятся в `main`, размещение описано в `docs/yandex-deployment.md`.
 Агент ищет исторические публикации в интернете и показывает литературу только
 по просьбе пользователя.
 

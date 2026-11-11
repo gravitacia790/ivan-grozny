@@ -1,117 +1,112 @@
-# Перенос сервера чата в Яндекс Облако
+# Сервер чата в Яндекс Облаке
 
-Подготовка: 11 ноября 2026 года. Развёртывание пока не выполнено.
-Пользователь согласовал создание платного контейнера по предложенной
-конфигурации. Создан контейнер `ivan-grozny-chat`, ID `bbatab3hsdebeh7r2908`;
-ревизия с приложением ещё не создана.
-Создан закрытый реестр `ivan-grozny-chat`, ID `crpaotqo0rjcfj0qv4ab`.
-Интерфейс остаётся на https://gravitacia790.github.io/ivan-grozny/.
-Переносится Next.js-сервер с `/api/chat`, поиском и итогами урока.
-Модель остаётся Alice AI LLM через Yandex AI Studio.
+Перенос завершён 12 ноября 2026 года (Москва). Интерфейс остаётся на
+https://gravitacia790.github.io/ivan-grozny/ и обращается напрямую к
+https://functions.yandexcloud.net/d4e15h0kkhld9p24dqgn .
+Модель и поиск — Alice AI LLM через прежний API Yandex AI Studio.
 
-## Выбранная конфигурация
+## Рабочая конфигурация
 
-- Yandex Serverless Containers, регион Россия; существующий Dockerfile.
-- Каталог `b1gm3n3fhf4mjnfcm42h` — необходимо проверить доступ и биллинг.
-- Начальные параметры: 1 vCPU, 512 MB RAM, таймаут 90 секунд,
-  concurrency 4, min-instances 0, zone-instances-limit 1.
-- Docker-образ Linux amd64 хранится в закрытом Yandex Container Registry.
-- Ключ модели — секрет Lockbox, передаваемый серверу как `YANDEX_API_KEY`.
-- Сервисному аккаунту нужны права чтения именно этого образа и секрета.
-  Административные роли приложению не нужны.
+- Cloud Functions `ivan-grozny-chat`, ID `d4e15h0kkhld9p24dqgn`.
+- Активная версия `d4eaqdviu0t0c5g0abmb`, исходники `1d391f6`.
+- Каталог `b1gm3n3fhf4mjnfcm42h`; Node.js 22, `handler.handler`.
+- 512 MB, таймаут 90 секунд, concurrency 4; на зону один экземпляр,
+  четыре одновременных запроса, provisioned instances 0.
+- Служебный аккаунт `ivan-grozny-runtime`: `aje8liest3682e6ms1v6`.
+- Lockbox `e6q1h1qjjs5bt7rh0hfn`, активная версия
+  `e6qg2l1rcdh9n9g1lcqu`, запись `YANDEX_API_KEY`.
+  Новый ключ пользователь сохранил вручную; значение не входит в сборку.
+- У runtime есть чтение только этого секрета и ранее созданного закрытого реестра.
+- Публичный HTTPS-вызов функции разрешён. CORS допускает Origin
+  `https://gravitacia790.github.io`; посторонний Origin получает 403.
+- Логирование отключено: консоль сообщала об ограничении сервиса логов.
 
-Ограничение экземпляров задаётся на зону, а не на весь сервис.
-Текущий лимитер приложения действует в памяти отдельного процесса и не является
-глобальным лимитом расходов. Нулевой минимум допускает холодный запуск.
+В каталоге есть также пустой черновик Lockbox с тем же именем. Использовать
+точные ID, не выбирать секрет по имени. Ключ OpenAI по решению пользователя
+не перенесён. Старые подписи источников, созданные другим ключом, не проходят
+проверку на новом сервере; сама переписка в браузере сохраняется.
 
-## Сборка
+## Повторное развёртывание
 
-Из корня `ivan-grozny/`, на машине с Docker:
+Из корня проекта после установки зависимостей:
 
 ```sh
 npm run test:api
-npm run build
-docker build --platform linux/amd64 -t cr.yandex/REGISTRY_ID/ivan-chat:VERSION .
-docker push cr.yandex/REGISTRY_ID/ivan-chat:VERSION
+npm run typecheck
+npm run test:yandex-function
+yc serverless function version create \
+  --function-name ivan-grozny-chat \
+  --runtime nodejs22 --entrypoint handler.handler \
+  --memory 512MB --execution-timeout 90s --concurrency 4 \
+  --service-account-id aje8liest3682e6ms1v6 \
+  --source-path .yandex-function \
+  --environment AI_PROVIDER=yandex,YANDEX_FOLDER_ID=b1gm3n3fhf4mjnfcm42h,YANDEX_MODEL=aliceai-llm/latest,YANDEX_RESEARCH_MODEL=aliceai-llm/latest,TEACHER_MATERIALS_APPROVED=false,CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io \
+  --secret id=e6q1h1qjjs5bt7rh0hfn,version-id=e6qg2l1rcdh9n9g1lcqu,key=YANDEX_API_KEY,environment-variable=YANDEX_API_KEY \
+  --no-logging
+yc serverless function set-scaling-policy --name ivan-grozny-chat \
+  --tag '$latest' --zone-instances-limit 1 --zone-requests-limit 4 \
+  --provisioned-instances-count 0
 ```
 
-`REGISTRY_ID` и `VERSION` заменить фактическими значениями. Секреты для сборки
-не нужны. Не загружать родительскую папку, API.rtf или локальные env-файлы.
-Локально Docker и yc в PATH не обнаружены; Docker-сборка пока не проверена.
-В Cloud Shell также нет Docker. Проверена сборка standalone на Linux
-с Node.js 22.23.5, установленным во временную папку с проверкой SHA-256.
-Образ собирается crane 0.22.1: слой `app/` со standalone добавляется к
-официальному `node:22-bookworm-slim`, задаются рабочая папка `/app`, UID 1000,
-CMD `node server.js`, HOSTNAME=0.0.0.0 и NODE_ENV=production. Ключей в слое нет.
-Перед итоговой сборкой обновить исходники: первоначальное клонирование GitHub
-получило старый b4adf10, а актуальная локальная версия — 6ba85df с итогами урока.
+Сборщик переносит существующие серверные модули в CommonJS без runtime-зависимостей.
+Адаптер преобразует HTTPS-событие в Request и возвращает прежний Response.
+Правила персонажа, поиск, источники, лимитер и итог урока остаются в исходном
+`app/api/chat/route.ts`. Родительская папка и API.rtf не загружаются.
 
-## Серверные настройки
-
-```text
-AI_PROVIDER=yandex
-YANDEX_FOLDER_ID=b1gm3n3fhf4mjnfcm42h
-YANDEX_MODEL=aliceai-llm/latest
-YANDEX_RESEARCH_MODEL=aliceai-llm/latest
-TEACHER_MATERIALS_APPROVED=false
-CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io
-```
-
-`YANDEX_API_KEY` подключить из Lockbox. При переносе старых подписанных списков
-источников сохранить действующий секрет подписи как `SOURCE_RECEIPT_SECRET`.
-Если это невозможно, старую библиографию проверить отдельно: подписи,
-созданные с другим секретом, не будут приниматься. Секреты не помещать
-в Dockerfile, исходники, GitHub Pages или команды в истории терминала.
-
-После создания реестра, контейнера, сервисного аккаунта и секрета:
+Статическая сборка интерфейса:
 
 ```sh
-yc serverless container revision deploy \
-  --container-id CONTAINER_ID \
-  --image cr.yandex/REGISTRY_ID/ivan-chat:VERSION \
-  --service-account-id SERVICE_ACCOUNT_ID \
-  --cores 1 --memory 512MB --execution-timeout 90s \
-  --concurrency 4 --min-instances 0 --zone-instances-limit 1 \
-  --environment AI_PROVIDER=yandex,YANDEX_FOLDER_ID=b1gm3n3fhf4mjnfcm42h,YANDEX_MODEL=aliceai-llm/latest,YANDEX_RESEARCH_MODEL=aliceai-llm/latest,TEACHER_MATERIALS_APPROVED=false,CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io \
-  --secret id=SECRET_ID,key=YANDEX_API_KEY,environment-variable=YANDEX_API_KEY
+NEXT_PUBLIC_CHAT_API_URL=https://functions.yandexcloud.net/d4e15h0kkhld9p24dqgn npm run build:pages
 ```
 
-Это шаблон: все обозначенные идентификаторы заменить реальными.
-При сохранении прежней подписи добавить второй секрет для
-`SOURCE_RECEIPT_SECRET`. Порт задаёт платформа через `PORT`;
-standalone-сервер уже слушает `0.0.0.0`.
+Публикуется только `.next-pages/` в `gh-pages`. Последняя версия `caf9344`,
+публикация GitHub Actions `43100587628` — completed/success.
+Публичный HTML содержит новый JS-бандл `2vg3kl5aaldgj.js`; в сборке нет старого
+адреса Vercel или обнаруженных шаблонов ключей.
 
-## Проверка и переключение
+## Проверки
 
-1. Получить HTTPS-адрес контейнера из консоли. Разрешить публичный вызов
-   именно контейнера; реестр и секрет оставить закрытыми.
-2. Проверить GET и OPTIONS `/api/chat` с Origin
-   `https://gravitacia790.github.io`: provider=yandex, configured=true,
-   корректные CORS-заголовки. Посторонний Origin должен отклоняться.
-3. После согласования расходов проверить один ответ, его источники и итог урока.
-4. Собрать Pages с `NEXT_PUBLIC_CHAT_API_URL=<HTTPS-адрес контейнера>/api/chat`
-   командой `npm run build:pages`. Опубликовать только `.next-pages/`.
-5. Проверить вопрос и итог из браузера на опубликованной странице, затем
-   отсутствие обращений к Vercel в новом бандле. Предыдущий сервер сохранить
-   до завершения проверки. Для отката вернуть прежний адрес API и сборку Pages.
+- Локальные typecheck, test:api, test:yandex-function и статическая сборка прошли.
+  Проверки адаптера выполняются без сети и без модели: GET, CORS, OPTIONS,
+  неподдерживаемый метод, UTF-8/base64, некорректный JSON.
+- Публичный GET → 200, provider=yandex, configured=true; OPTIONS → 204;
+  чужой Origin → 403.
+- Живой вопрос о родителях → 200 за 11,9 секунды, названы Василий III
+  и Елена Глинская. По подписанной квитанции возвращены три источника → 200.
+- Итог этой беседы → 200 за 1,6 секунды, все три раздела присутствуют.
+  Эти пробы подтверждают работоспособность сценариев, а не историческую
+  достоверность всех будущих ответов или качество каждого итога.
 
-## Стоимость и текущий доступ
+В Яндекс Браузере на опубликованной странице подтверждены статус ключа и
+ответ на «Покажи источники» без вызова модели. Фактически загруженный публичный
+JS-бандл содержит адрес новой функции, старого адреса Vercel в нём нет.
 
-Создание платных ресурсов требует согласования. Работа модели и поиска
-оплачивается отдельно от хостинга, как и раньше.
-Контейнер тарифицируется по вызовам, CPU и памяти во время обработки;
-хранение образа и секрета имеет отдельную тарификацию. До запуска проверить
-тариф аккаунта, доступный бесплатный объём и согласовать бюджет.
+## Предыдущая попытка с контейнером
+
+Созданный контейнер `bbatab3hsdebeh7r2908` не используется сайтом.
+Его публичный доступ закрыт; диагностическая ревизия заменена обратно на
+ревизию приложения `bbar8tc2ds93s9087uk8`. Минимум экземпляров 0.
+Закрытый реестр `crpaotqo0rjcfj0qv4ab` содержит образ
+`cr.yandex/crpaotqo0rjcfj0qv4ab/ivan-chat:e1234f8`, digest
+`sha256:5c7e33e4ea19311d95b3bea6d03759e0850c3e17bf0f2429a29a46887f8e9e6b`.
+
+Ревизии получали ACTIVE, но публичный HTTP не ответил даже за 105 секунд.
+Минимальный HTTP-сервер в том же образе также не ответил; та же standalone-сборка
+локально в Cloud Shell вернула 200. Причина не установлена. Для рабочего
+размещения использована Cloud Functions без Docker.
+Vercel не удалён, новый ключ туда не переносился; его работоспособность после
+смены ключа не проверена. Для отката недостаточно обещать старый сервер рабочим:
+сначала потребуется проверить его настройки и ключ.
+
+## Оплата и ограничения
+
+Платное размещение согласовано пользователем. Для функции 512 MB при 1000
+вызовах по 30 секунд вычисления составляют около 27 ₽ до бесплатного объёма.
+Модель, поиск, Lockbox и хранение образов оплачиваются отдельно. Это оценка,
+а не жёсткий бюджет. Лимиты экземпляров действуют на зону, а ограничение
+запросов приложения хранится в памяти процесса и не является лимитом расходов.
 
 Официальные инструкции:
-- https://yandex.cloud/ru/docs/serverless-containers/quickstart/container
-- https://yandex.cloud/ru/docs/serverless-containers/pricing
-- https://yandex.cloud/ru/docs/container-registry/pricing
-- https://yandex.cloud/en/docs/cli/cli-ref/serverless/cli-ref/v0/container/revision/deploy
-
-Консоль в браузере открылась после длительной загрузки: доступ к каталогу
-и создание контейнера подтверждены. Ранее контейнеров не было.
-Права развёртывания образа и условия биллинга ещё нужно проверить.
-В редакторе показано: «Логирование недоступно. Платформа работает
-в ограниченном режиме». Действующий сайт не переключён, новые ключи
-не выпускались. Локальные test:api и production build прошли.
+- https://yandex.cloud/ru/docs/functions/operations/function/version-manage
+- https://yandex.cloud/ru/docs/functions/operations/function/scaling-settings-add
+- https://yandex.cloud/ru/docs/functions/pricing
