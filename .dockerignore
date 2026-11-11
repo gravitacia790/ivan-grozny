@@ -3,6 +3,7 @@ node_modules
 .next-pages
 out
 .git
+.vercel
 .env*
 !.env.example
 /API*
