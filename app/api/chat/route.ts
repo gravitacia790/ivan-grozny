@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { instructions, answerFormatFor, checkedReply, fixedAnswers } from "@/lib/instructions";
 
 import { researchDomainGroups } from "@/lib/source-policy";
@@ -9,6 +7,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 type Message = { role: "user" | "assistant"; content: string };
+function providerConfig() {
+  const yandex = process.env.AI_PROVIDER === "yandex";
+  const model = yandex ? `gpt://${process.env.YANDEX_FOLDER_ID}/${process.env.YANDEX_MODEL || "aliceai-llm/latest"}` : process.env.OPENAI_MODEL || "gpt-5-mini";
+  return { yandex, model,
+    key: yandex ? process.env.YANDEX_API_KEY : process.env.OPENAI_API_KEY,
+    configured: yandex ? Boolean(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID) : Boolean(process.env.OPENAI_API_KEY),
+    url: yandex ? "https://ai.api.cloud.yandex.net/v1/responses" : "https://api.openai.com/v1/responses",
+    researchModel: yandex ? `gpt://${process.env.YANDEX_FOLDER_ID}/${process.env.YANDEX_RESEARCH_MODEL || process.env.YANDEX_MODEL || "aliceai-llm/latest"}` : process.env.OPENAI_RESEARCH_MODEL || "gpt-5-mini"
+  };
+}
 const limits = new Map<string, { count: number; expires: number }>();
 const reply = (error: string, status: number, extra = {}) => Response.json({ error, ...extra }, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -38,7 +46,7 @@ function withCors(request: Request | undefined, response: Response): Response {
 
 export async function GET(request?: Request) {
   if (request && !allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
-  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "trusted_web_search", sourcesOnRequest: true }, { headers: { "Cache-Control": "no-store" } }));
+  return withCors(request, Response.json({ configured: providerConfig().configured, provider: providerConfig().yandex ? "yandex" : "openai", materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "trusted_web_search", sourcesOnRequest: true }, { headers: { "Cache-Control": "no-store" } }));
 }
 
 export async function OPTIONS(request: Request) {
@@ -52,7 +60,8 @@ export async function POST(request: Request) {
 
 async function handlePost(request: Request) {
   if (!allowedOrigin(request)) return reply("Запрос разрешён только со страницы сайта.", 403);
-  if (!process.env.OPENAI_API_KEY) return reply("ИИ пока не подключён. Попроси учителя проверить подключение.", 503);
+  const provider = providerConfig();
+  if (!provider.configured) return reply("ИИ пока не подключён. Попроси учителя проверить подключение.", 503);
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > 24000) return reply("Беседа слишком длинная. Сохрани её и начни новую.", 413);
   let body;
@@ -84,8 +93,6 @@ async function handlePost(request: Request) {
   global.count++; user.count++;
   limits.set("global", global); limits.set(session, user);
   try {
-    const materials = await readFile(join(process.cwd(), "content/teacher-materials.md"), "utf8");
-    const materialsApproved = process.env.TEACHER_MATERIALS_APPROVED === "true";
     const json = (value: unknown) => Response.json(value, { headers: { "Cache-Control": "no-store" } });
     const question = messages.at(-1)!.content;
     const wantsSources = requestsBibliography(question);
@@ -100,25 +107,30 @@ async function handlePost(request: Request) {
     }
     if (asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
     const input = messages.map(({ role, content }) => ({ role, content }));
-    const upstream = (payload: object, timeout: number) => fetch("https://api.openai.com/v1/responses", {
+    const upstream = (payload: object, timeout: number) => fetch(provider.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: process.env.OPENAI_MODEL || "gpt-5-mini", store: false, ...payload }),
+      headers: { Authorization: `${provider.yandex ? "Api-Key" : "Bearer"} ${provider.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: provider.model, store: false, ...payload }),
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)])
     });
-    const searchResponses = await Promise.all(researchDomainGroups.map(domains => upstream({
-      model: process.env.OPENAI_RESEARCH_MODEL || "gpt-5-mini", reasoning: { effort: "low" },
+    const domainGroups = provider.yandex ? researchDomainGroups.flatMap(group => Array.from({ length: Math.ceil(group.length / 5) }, (_, i) => group.slice(i * 5, i * 5 + 5))) : researchDomainGroups;
+    const searchResponses = await Promise.all(domainGroups.map(domains => upstream({
+      model: provider.researchModel,
+      ...(!provider.yandex ? { reasoning: { effort: "low" } } : {}),
       instructions: researchInstructions,
       input,
       tools: [{ type: "web_search", filters: { allowed_domains: domains }, search_context_size: "medium" }],
-      tool_choice: "required", include: ["web_search_call.action.sources"], max_output_tokens: 3000
+      tool_choice: "required", ...(!provider.yandex ? { include: ["web_search_call.action.sources"] } : {}), max_output_tokens: 3000
     }, 38000)));
     let response = searchResponses.find(result => !result.ok) || searchResponses[0];
     let research;
     if (response.ok) {
       const data = await Promise.all(searchResponses.map(result => result.json()));
-      if (data.some(result => result.status !== "completed")) return reply("Поиск не завершён. Вопрос сохранён — попробуй ещё раз.", 502);
-      const parts = data.map(extractResearch);
+      if (data.some(result => result.status !== "completed")) {
+        console.warn("research incomplete", data.map(result => ({ status: result.status, reason: result.incomplete_details?.reason })));
+        return reply("Поиск не завершён. Вопрос сохранён — попробуй ещё раз.", 502);
+      }
+      const parts = data.map(result => extractResearch(result, provider.yandex));
       if (parts.every(part => part.text.trim() === "OUT_OF_CONTEXT")) return json({ answer: fixedAnswers.out_of_context });
       if (parts.every(part => part.text.trim() === "CLARIFICATION")) return json({ answer: fixedAnswers.clarification });
       const usable = parts.filter(part => part.searched && part.sources.length);
@@ -126,18 +138,18 @@ async function handlePost(request: Request) {
       research = { text: usable.map(part => part.text).join("\n\n"), sources: unique.map((source, i) => ({ ...source, id: `web-${i + 1}` })) };
       if (!independentSources(research.sources)) return json({ answer: fixedAnswers.insufficient_context });
       response = await upstream({
-        instructions: instructions(materials, materialsApproved, research.text, research.sources),
+        instructions: instructions(research.text, research.sources),
         input, max_output_tokens: 1800,
-        ...((process.env.OPENAI_MODEL || "gpt-5-mini").startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {}),
+        ...(provider.model.startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {}),
         text: { format: answerFormatFor(research.sources.map(source => source.id)) }
       }, 17000);
     }
     if (!response.ok) {
-      if (response.status === 401) return reply("Сервис ИИ не принял ключ доступа. Попроси учителя проверить ключ OpenAI на сервере.", 503);
+      if (response.status === 401) return reply("Сервис ИИ не принял ключ доступа. Попроси учителя проверить ключ выбранного ИИ на сервере.", 503);
       if (response.status === 403 || response.status === 404) return reply("У сервера нет доступа к выбранной модели ИИ. Сообщи учителю.", 503);
       if (response.status === 429) {
         const failure = await response.json().catch(() => ({}));
-        return reply(failure.error?.code === "insufficient_quota" ? "На сервере исчерпан баланс или лимит расходов OpenAI. Сообщи учителю." : "Сервис ИИ получил слишком много запросов. Подожди минуту и попробуй снова.", 503);
+        return reply(failure.error?.code === "insufficient_quota" ? "На сервере исчерпан баланс или лимит расходов выбранного ИИ. Сообщи учителю." : "Сервис ИИ получил слишком много запросов. Подожди минуту и попробуй снова.", 503);
       }
       return reply("Не удалось получить ответ ИИ. Вопрос сохранён — попробуй ещё раз или обратись к учителю.", 502);
     }

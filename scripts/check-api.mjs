@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import ts from "typescript";
 const temp = await mkdtemp(join(tmpdir(), "ivan-api-check-"));
 const originalFetch = globalThis.fetch;
-const envNames = ["OPENAI_API_KEY", "TEACHER_MATERIALS_APPROVED", "CHAT_ALLOWED_ORIGINS"];
+const envNames = ["AI_PROVIDER", "YANDEX_API_KEY", "YANDEX_FOLDER_ID", "YANDEX_MODEL", "YANDEX_RESEARCH_MODEL", "SOURCE_RECEIPT_SECRET", "OPENAI_API_KEY", "TEACHER_MATERIALS_APPROVED", "CHAT_ALLOWED_ORIGINS"];
 const originalEnv = envNames.map(name => process.env[name]);
 try {
   for (const [source, name] of [["lib/historical-sources.ts", "historical-sources"], ["lib/source-policy.ts", "source-policy"], ["lib/research.ts", "research"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
@@ -19,6 +19,8 @@ try {
   const policy = await import(pathToFileURL(join(temp, "instructions.mjs")));
   const research = await import(pathToFileURL(join(temp, "research.mjs")));
   const sourcePolicy = await import(pathToFileURL(join(temp, "source-policy.mjs")));
+  process.env.AI_PROVIDER = "openai";
+  delete process.env.SOURCE_RECEIPT_SECRET;
   process.env.OPENAI_API_KEY = "test-key-never-sent";
   process.env.TEACHER_MATERIALS_APPROVED = "false";
   process.env.CHAT_ALLOWED_ORIGINS = "https://gravitacia790.github.io";
@@ -111,6 +113,36 @@ try {
   assert.equal((await api.POST(request(question))).status,502);
   delete process.env.OPENAI_API_KEY;
   assert.equal((await api.POST(request(question))).status,503);
+  process.env.AI_PROVIDER = "yandex";
+  process.env.YANDEX_API_KEY = "test-yandex-never-sent";
+  process.env.YANDEX_FOLDER_ID = "test-folder";
+  delete process.env.YANDEX_MODEL;
+  delete process.env.YANDEX_RESEARCH_MODEL;
+  const yandexGroups = [];
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://ai.api.cloud.yandex.net/v1/responses");
+    assert.equal(options.headers.Authorization, "Api-Key test-yandex-never-sent");
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.model, "gpt://test-folder/aliceai-llm/latest");
+    assert.equal(payload.reasoning, undefined);
+    if (payload.tools) {
+      const domains = payload.tools[0].filters.allowed_domains;
+      assert.ok(domains.length <= 5);
+      yandexGroups.push(...domains);
+      assert.equal(payload.tool_choice, "required");
+      assert.equal(payload.include, undefined);
+      return Response.json(evidence(sources.map(source => ({ ...source, title: "", url: source.url.replace("https://", "") }))));
+    }
+    assert.equal(payload.text.format.strict, true);
+    return Response.json(completion(packed("in_context", answer)));
+  };
+  const yandexResult = await (await api.POST(request(question))).json();
+  assert.equal(yandexResult.answer, answer);
+  assert.deepEqual([...new Set(yandexGroups)].sort(), [...sourcePolicy.trustedDomains].sort());
+  assert.equal(research.receiptSources(yandexResult.sourceReceipt, answer).length, 2);
+  assert.equal((await (await api.GET()).json()).provider, "yandex");
+  delete process.env.YANDEX_FOLDER_ID;
+  assert.equal((await api.POST(request(question))).status, 503);
   console.log("API checks passed: forced trusted web search, two hosts, no fabricated references, hidden bibliography, requested exact bibliography, signed provenance, validation/CORS/rate limits and upstream failures.");
 } finally {
   globalThis.fetch=originalFetch;
