@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { instructions, answerFormat, checkedAnswer } from "@/lib/instructions";
+import { instructions, answerFormat, checkedReply } from "@/lib/instructions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ function withCors(request: Request | undefined, response: Response): Response {
 
 export async function GET(request?: Request) {
   if (request && !allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
-  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true" }, { headers: { "Cache-Control": "no-store" } }));
+  return withCors(request, Response.json({ configured: Boolean(process.env.OPENAI_API_KEY), materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "primary_sources_xvi_xvii" }, { headers: { "Cache-Control": "no-store" } }));
 }
 
 export async function OPTIONS(request: Request) {
@@ -106,9 +106,9 @@ async function handlePost(request: Request) {
     const data = await response.json();
     const text = (data.output || []).flatMap((item: { type: string; content?: { type: string; text?: string }[] }) => item.type === "message" ? (item.content || []).filter(c => c.type === "output_text").map(c => c.text || "") : []).join("\n").trim();
     if (!text || data.status !== "completed") return reply("ИИ не завершил ответ. Попробуй сформулировать вопрос короче.", 502);
-    const answer = checkedAnswer(text);
-    if (!answer) return reply("Ответ не прошёл проверку формата. Вопрос сохранён — попробуй ещё раз.", 502);
-    return Response.json({ answer }, { headers: { "Cache-Control": "no-store" } });
+    const checked = checkedReply(text);
+    if (!checked) return reply("Ответ не прошёл проверку формата. Вопрос сохранён — попробуй ещё раз.", 502);
+    return Response.json(checked, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return reply("Время ожидания истекло или нет связи с ИИ. Вопрос сохранён — можно повторить отправку.", 504);
   }

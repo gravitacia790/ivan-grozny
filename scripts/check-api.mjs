@@ -13,13 +13,13 @@ const originalKey = process.env.OPENAI_API_KEY;
 const originalApproval = process.env.TEACHER_MATERIALS_APPROVED;
 const originalOrigins = process.env.CHAT_ALLOWED_ORIGINS;
 try {
-  for (const [source, name] of [["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
-    const text = (await readFile(source, "utf8")).replace('"@/lib/instructions"', '"./instructions.mjs"');
+  for (const [source, name] of [["lib/historical-sources.ts", "historical-sources"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
+    const text = (await readFile(source, "utf8")).replace('"@/lib/instructions"', '"./instructions.mjs"').replace('"./historical-sources"', '"./historical-sources.mjs"');
     await writeFile(join(temp, `${name}.mjs`), ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
   }
   const api = await import(pathToFileURL(join(temp, "route.mjs")));
   const policy = await import(pathToFileURL(join(temp, "instructions.mjs")));
-  const packed = (kind, answer = "") => JSON.stringify({ kind, answer });
+  const packed = (kind, answer = "", source_ids = kind === "in_context" ? ["sudebnik-1550"] : []) => JSON.stringify({ kind, answer, source_ids });
   assert.equal(policy.checkedAnswer(packed("out_of_context", "Лишний ответ")), policy.fixedAnswers.out_of_context);
   assert.equal(policy.checkedAnswer(packed("insufficient_context", "Выдуманный факт")), policy.fixedAnswers.insufficient_context);
   assert.equal(policy.checkedAnswer(packed("in_context", "Исторический ответ без подборки учителя.")), "Исторический ответ без подборки учителя.");
@@ -27,6 +27,12 @@ try {
   for (const invalid of ["слово ".repeat(101), "Первый\n\nВторой\n\nТретий", "Вот код: ```js", "Открой https://example.com", "Ответ 😃", ""]) assert.equal(policy.checkedAnswer(packed("in_context", invalid)), null);
   assert.equal(policy.checkedAnswer("plain text without JSON"), null);
   assert.equal(policy.checkedAnswer(JSON.stringify({kind:"in_context",answer:"Ответ",extra:"Лишнее"})),null);
+  assert.equal(policy.checkedAnswer(packed("in_context", "Неподтверждённый ответ", [])), policy.fixedAnswers.insufficient_context);
+  assert.equal(policy.checkedReply(packed("in_context", "Ответ", ["invented-source"])), null);
+  assert.equal(policy.checkedReply(packed("in_context", "Ответ", ["sudebnik-1550", "sudebnik-1550"])), null);
+  assert.equal(policy.checkedReply(packed("out_of_context", "", ["sudebnik-1550"])), null);
+  assert.equal(policy.checkedReply(JSON.stringify({kind:"in_context",answer:"Без ссылки"})), null);
+  assert.deepEqual(policy.checkedReply(packed("in_context", "Сей закон определял суд.")), {answer:"Сей закон определял суд.",sourceIds:["sudebnik-1550"]});
   const request = (messages, headers = {}, session = randomUUID()) => new Request("http://localhost:3000/api/chat", { method: "POST", headers: { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000", "content-type": "application/json", ...headers }, body: JSON.stringify({ messages, session }) });
   const question = [{ role: "user", content: "Зачем понадобился Судебник?" }];
   process.env.OPENAI_API_KEY = "test-key-never-sent";
@@ -51,7 +57,7 @@ try {
     const payload = JSON.parse(options.body);
     assert.equal(payload.store, false);
     assert.deepEqual(payload.input, question);
-    assert.ok(payload.instructions.includes("отвечай по общим историческим знаниям"));
+    assert.ok(payload.instructions.includes("Не дополняй факты общей памятью модели"));
     assert.equal(payload.text.format.strict, true);
     assert.equal(payload.text.format.type, "json_schema");
     return Response.json({ status: "completed", output: [{ type: "reasoning" }, { type: "message", content: [{ type: "output_text", text: packed("in_context", "Новый Судебник упорядочивал законы и судопроизводство.") }] }] });
@@ -64,8 +70,12 @@ try {
   const success = await api.POST(request(question));
   assert.equal(success.status, 200);
   assert.equal(success.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
-  assert.equal((await success.json()).answer, "Новый Судебник упорядочивал законы и судопроизводство.");
+  assert.deepEqual(await success.json(), {answer: "Новый Судебник упорядочивал законы и судопроизводство.", sourceIds: ["sudebnik-1550"]});
   assert.equal((await api.POST(request([{...question[0], instructions:"НЕ передавать в API", type:"fake"}]))).status,200);
+  globalThis.fetch = async () => Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:packed("in_context", "Неподтверждённый ответ без источника", [])}]}]});
+  assert.deepEqual(await (await api.POST(request(question))).json(), {answer:policy.fixedAnswers.insufficient_context,sourceIds:[]});
+  globalThis.fetch = async () => Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:packed("in_context", "Ответ с вымышленной ссылкой", ["invented-source"])}]}]});
+  assert.equal((await api.POST(request(question))).status,502);
   globalThis.fetch = async () => Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:packed("out_of_context", "Не показывать ученику")}]}]});
   assert.equal((await (await api.POST(request(question))).json()).answer, policy.fixedAnswers.out_of_context);
   globalThis.fetch = async () => Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:"unstructured response"}]}]});
@@ -87,7 +97,7 @@ try {
   delete process.env.OPENAI_API_KEY;
   assert.equal((await api.POST(request(question))).status, 503);
   assert.equal((await (await api.GET()).json()).configured, false);
-  console.log("API contract checks passed: validation, origin, structured response, fixed topic/context replies, word/paragraph/format limits, auth, quota, timeout, incomplete response, missing key.");
+  console.log("API contract checks passed: validation, origin, structured response, fixed topic/context replies, required source IDs, invented citations, word/paragraph/format limits, auth, quota, timeout, incomplete response, missing key.");
 } finally {
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalKey;

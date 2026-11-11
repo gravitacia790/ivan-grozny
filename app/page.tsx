@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { ArrowDown, ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Crown, Download, Feather, LoaderCircle, MessageSquare, RotateCcw, Send, ShieldCheck, Volume2, VolumeX, X } from "lucide-react";
 import { monologue, suggestedQuestions } from "@/content/intro";
+import { referencesFor } from "@/lib/historical-sources";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; sourceIds?: string[] };
 type Screen = "home" | "intro" | "chat";
 const storageKey = "ivan-iv-conversation-v1";
 const staticPreview = process.env.NEXT_PUBLIC_STATIC_PREVIEW === "true";
@@ -94,14 +95,14 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не удалось получить ответ.");
       if (typeof data.answer !== "string" || !data.answer.trim()) throw new Error("Получен пустой ответ. Попробуй снова.");
-      setMessages(previous => [...previous, { role: "user", content: question }, { role: "assistant", content: data.answer }]);
+      setMessages(previous => [...previous, { role: "user", content: question }, { role: "assistant", content: data.answer, sourceIds: referencesFor(data.sourceIds).map(source => source.id) }]);
       setDraft("");
     } catch (e) { setError(e instanceof Error && e.name !== "AbortError" ? e.message : "Время ожидания истекло. Вопрос сохранён — попробуй ещё раз."); }
     finally { clearTimeout(timeout); sending.current = false; setLoading(false); input.current?.focus(); }
   }
 
   function download() {
-    const text = ["Исповедь Ивана Грозного", "Учебная ИИ-реконструкция. Ответы требуют проверки по источникам.", new Date().toLocaleString("ru-RU"), "", ...messages.map(m => `${m.role === "user" ? "Ученик" : "Иван IV (ИИ)"}: ${m.content}\n`)].join("\n");
+    const text = ["Исповедь Ивана Грозного", "Учебная ИИ-реконструкция. Ответы требуют проверки по источникам.", new Date().toLocaleString("ru-RU"), "", ...messages.map(m => `${m.role === "user" ? "Ученик" : "Иван IV (ИИ)"}: ${m.content}\n${referencesFor(m.sourceIds).map(source => `Источник: ${source.title} (${source.period}). ${source.url}`).join("\n")}\n`)].join("\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = "Беседа-с-Иваном-IV.txt"; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000); setSaved(true); setTimeout(() => setSaved(false), 2500);
@@ -178,7 +179,7 @@ export default function Home() {
           <div className="chat-status"><span className={`status-dot ${status?.configured ? "connected" : ""}`} />{status === null ? "Проверяем подключение…" : status.configured ? "Ключ ИИ настроен" : "ИИ пока не подключён"}<span className="status-divider">/</span><span>Текстовый разговор</span></div>
           <div className="messages" role="log" aria-label="Переписка с Иваном IV" aria-live="polite" aria-relevant="additions" aria-busy={loading}>
             {messages.length === 0 && <div className="empty-chat"><span className="quill-mark"><Feather size={28} strokeWidth={1.1} /></span><h2>У каждого решения есть история</h2><p>Начни с вопроса, который тебя волнует.<br />Не бойся уточнять и спорить с аргументами.</p><div className="suggestions">{suggestedQuestions.map((q, i) => <button key={q} disabled={loading} onClick={() => { setDraft(q); input.current?.focus(); }}><span>0{i + 1}</span>{q}<ArrowRight size={15} /></button>)}</div></div>}
-            {messages.map((message, i) => <article className={`message ${message.role}`} key={i}><span className="message-author">{message.role === "user" ? "ТВОЙ ВОПРОС" : "ИВАН IV · ИИ-РЕКОНСТРУКЦИЯ"}</span><p>{message.content}</p>{message.role === "assistant" && <small>Проверь утверждения по историческим источникам.</small>}</article>)}
+            {messages.map((message, i) => <article className={`message ${message.role}`} key={i}><span className="message-author">{message.role === "user" ? "ТВОЙ ВОПРОС" : "ИВАН IV · ИИ-РЕКОНСТРУКЦИЯ"}</span><p>{message.content}</p>{message.role === "assistant" && <>{referencesFor(message.sourceIds).length > 0 && <div className="message-sources" aria-label="Источники ответа"><span>Источники:</span>{referencesFor(message.sourceIds).map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.passage}>{source.title} · {source.period}</a>)}</div>}<small>Проверь утверждения по историческим источникам.</small></>}</article>)}
             {loading && <div className="pending"><p><span>Твой вопрос</span>{draft}</p><div><LoaderCircle size={17} className="spin" /> Государь размышляет над ответом…</div></div>}
             <div ref={end} />
           </div>

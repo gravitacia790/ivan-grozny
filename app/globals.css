@@ -157,3 +157,8 @@
   .screen-intro .intro-fallback .audio-intro-note,.screen-intro .intro-transcript p{font-size:16px}
   .screen-intro .intro-fallback-actions .primary{font-size:36px;min-height:68px}
 }
+
+.message-sources{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:14px;font-size:12px;line-height:1.6;color:#695331}
+.message-sources>span{font-size:10px;color:#88714e}
+.message-sources a{text-underline-offset:3px;overflow-wrap:anywhere}
+.message-sources a:hover{color:#332b25}
