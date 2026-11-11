@@ -96,3 +96,23 @@ docker run --rm -p 3000:3000 --env-file .env.production ivan-grozny
 Размещение Vercel: `vercel deploy --prod` из корня репозитория.
 Автоматическое размещение из GitHub не подключено; загрузка CLI работает отдельно.
 Готового видео с движением губ пока нет; доступна аудиоверсия со статичным кадром.
+
+
+## Production с Яндексом — 11 ноября 2026
+
+На Vercel опубликована версия из коммита `8cfb480`, deployment
+`dpl_56MiAEUXXTgJah4vWPLFUM2cnH2a`, статус READY.
+Основной адрес: https://ivan-grozny-chat.vercel.app .
+
+В production настроены AI_PROVIDER=yandex, YANDEX_FOLDER_ID,
+YANDEX_MODEL=aliceai-llm/latest и YANDEX_RESEARCH_MODEL=aliceai-llm/latest.
+YANDEX_API_KEY хранится как серверный Secret Vercel. Ключ и настройки OpenAI
+сохранены. Для возврата к OpenAI нужно установить AI_PROVIDER=openai
+и выполнить новое развёртывание. Внешний API.rtf не загружался.
+GitHub Pages использует этот же сервер чата, отдельная сборка интерфейса
+для смены провайдера не требуется.
+
+
+Публичная проверка: главная, MP3 и GET /api/chat — HTTP 200, provider=yandex.
+Исторический вопрос с Origin GitHub Pages: первый запрос — тайм-аут 504,
+один повтор — HTTP 200, родители названы правильно. Возможны тайм-ауты поиска.
