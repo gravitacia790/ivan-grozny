@@ -6,6 +6,9 @@ exports.handler = async function handler(event) {
   if (event?.diagnostic === "gigachat-access" && Object.keys(event).length === 1) {
     return require("./check-access.js").checkAccess();
   }
+  if (event?.diagnostic === "gigachat-network" && Object.keys(event).length === 1) {
+    return require("./check-network.js").checkNetwork();
+  }
   const method = String(event?.httpMethod || "").toUpperCase();
   if (!["GET", "POST", "OPTIONS"].includes(method)) {
     return { statusCode: 405, headers: { Allow: "GET, POST, OPTIONS" }, body: "", isBase64Encoded: false };
