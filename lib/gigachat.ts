@@ -1,4 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
+import { request as httpsRequest } from "node:https";
+
+type GigaRequest = { method?: string; headers: Record<string, string>; body?: string; signal: AbortSignal };
+export function gigachatFetch(url: string, options: GigaRequest): Promise<Response> {
+  if (process.env.GIGACHAT_TRANSPORT !== "https") return fetch(url, options);
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(url, { ...options, family: 4 }, response => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > 1048576) { response.destroy(new Error("GigaChat response too large")); return; }
+        chunks.push(chunk);
+      });
+      response.on("error", reject);
+      response.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode || 502 })));
+    });
+    request.on("error", reject);
+    request.end(options.body);
+  });
+}
 
 // Credentials and OAuth tokens stay in server memory. Never disable TLS verification.
 let cached: { identity: string; token: string; expires: number } | undefined;
@@ -14,7 +35,7 @@ export async function gigachatRequest(payload: Payload, signal: AbortSignal): Pr
   const scope = process.env.GIGACHAT_SCOPE || "GIGACHAT_API_PERS";
   const identity = createHash("sha256").update(`${scope}:${credentials}`).digest("hex");
   if (!cached || cached.identity !== identity || cached.expires <= Date.now() + 60000) {
-    const response = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
+    const response = await gigachatFetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
       method: "POST", signal,
       headers: { Authorization: `Basic ${credentials}`, RqUID: randomUUID(), "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ scope }).toString()
@@ -26,7 +47,7 @@ export async function gigachatRequest(payload: Payload, signal: AbortSignal): Pr
     }
     cached = { identity, token: data.access_token, expires: data.expires_at };
   }
-  const response = await fetch("https://api.giga.chat/v1/chat/completions", {
+  const response = await gigachatFetch("https://api.giga.chat/v1/chat/completions", {
     method: "POST", signal,
     headers: { Authorization: `Bearer ${cached.token}`, "Content-Type": "application/json" },
     body: JSON.stringify({

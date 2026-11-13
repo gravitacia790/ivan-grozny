@@ -1,12 +1,13 @@
 // Authenticated CLI invocation only; OAuth/models do not generate text.
 const { randomUUID } = require("node:crypto");
+const { gigachatFetch } = require("./gigachat.js");
 exports.checkAccess = async function checkAccess() {
-  const result = { configured: Boolean(process.env.GIGACHAT_CREDENTIALS), tlsBundleConfigured: Boolean(process.env.NODE_EXTRA_CA_CERTS) };
+  const result = { configured: Boolean(process.env.GIGACHAT_CREDENTIALS), tlsBundleConfigured: Boolean(process.env.NODE_EXTRA_CA_CERTS), transport: process.env.GIGACHAT_TRANSPORT || "fetch" };
   if (!result.configured) return result;
   let stage = "oauth";
   const started = Date.now();
   try {
-    const response = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
+    const response = await gigachatFetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
       method: "POST", signal: AbortSignal.timeout(15000),
       headers: { Authorization: `Basic ${process.env.GIGACHAT_CREDENTIALS}`, RqUID: randomUUID(), "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ scope: process.env.GIGACHAT_SCOPE || "GIGACHAT_API_PERS" }).toString()
@@ -15,7 +16,7 @@ exports.checkAccess = async function checkAccess() {
     if (!response.ok) return result;
     const data = await response.json();
     stage = "models";
-    const models = await fetch("https://api.giga.chat/v1/models", {
+    const models = await gigachatFetch("https://api.giga.chat/v1/models", {
       headers: { Authorization: `Bearer ${data.access_token}` }, signal: AbortSignal.timeout(15000)
     });
     result.modelsStatus = models.status;
