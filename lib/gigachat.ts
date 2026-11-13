@@ -5,7 +5,10 @@ type GigaRequest = { method?: string; headers: Record<string, string>; body?: st
 export function gigachatFetch(url: string, options: GigaRequest): Promise<Response> {
   if (process.env.GIGACHAT_TRANSPORT !== "https") return fetch(url, options);
   return new Promise((resolve, reject) => {
-    const request = httpsRequest(url, { ...options, family: 4 }, response => {
+    // In Cloud Functions, TLS 1.3 stalls specifically on Sber's OAuth endpoint.
+    // TLS 1.2 completes with full certificate validation; the model API keeps its defaults.
+    const oauthTls = url === "https://ngw.devices.sberbank.ru:9443/api/v2/oauth" ? { maxVersion: "TLSv1.2" as const } : {};
+    const request = httpsRequest(url, { ...options, family: 4, ...oauthTls }, response => {
       const chunks: Buffer[] = [];
       let size = 0;
       response.on("data", (chunk: Buffer) => {

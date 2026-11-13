@@ -16,6 +16,8 @@ if env.get("AI_PROVIDER") != "gigachat" and source.is_file():
         if not env.get(name) and len(matches) == 1:
             env[name] = matches[0]
 giga_source = root.parent / "GigaChat API.txt"
+if env.get("AI_PROVIDER") == "gigachat":
+    env.setdefault("GIGACHAT_TRANSPORT", "https")
 if env.get("AI_PROVIDER") == "gigachat" and not env.get("GIGACHAT_CREDENTIALS") and giga_source.is_file():
     credential = giga_source.read_text().strip()
     if re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", credential):
