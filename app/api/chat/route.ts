@@ -1,5 +1,6 @@
 import { checkedSummary, summaryFormat, summaryInstructions } from "@/lib/lesson-summary";
-import { instructions, answerFormatFor, checkedReply, fixedAnswers } from "@/lib/instructions";
+import { gigachatRequest } from "@/lib/gigachat";
+import { instructions, gigachatInstructions, gigachatAnswerFormat, answerFormatFor, checkedReply, fixedAnswers } from "@/lib/instructions";
 
 import { researchDomainGroups } from "@/lib/source-policy";
 import { researchInstructions, extractResearch, independentSources, asksForSources, requestsBibliography, sourceReceipt, receiptSources } from "@/lib/research";
@@ -9,11 +10,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 type Message = { role: "user" | "assistant"; content: string };
 function providerConfig() {
+  const gigachat = process.env.AI_PROVIDER === "gigachat";
   const yandex = process.env.AI_PROVIDER === "yandex";
-  const model = yandex ? `gpt://${process.env.YANDEX_FOLDER_ID}/${process.env.YANDEX_MODEL || "aliceai-llm/latest"}` : process.env.OPENAI_MODEL || "gpt-5-mini";
-  return { yandex, model,
+  const researchConfigured = yandex ? Boolean(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID) : Boolean(process.env.OPENAI_API_KEY);
+  const model = gigachat ? process.env.GIGACHAT_MODEL || "GigaChat-3-Ultra" : yandex ? `gpt://${process.env.YANDEX_FOLDER_ID}/${process.env.YANDEX_MODEL || "aliceai-llm/latest"}` : process.env.OPENAI_MODEL || "gpt-5-mini";
+  return { yandex, gigachat, model,
     key: yandex ? process.env.YANDEX_API_KEY : process.env.OPENAI_API_KEY,
-    configured: yandex ? Boolean(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID) : Boolean(process.env.OPENAI_API_KEY),
+    configured: gigachat ? Boolean(process.env.GIGACHAT_CREDENTIALS) : researchConfigured,
     url: yandex ? "https://ai.api.cloud.yandex.net/v1/responses" : "https://api.openai.com/v1/responses",
     researchModel: yandex ? `gpt://${process.env.YANDEX_FOLDER_ID}/${process.env.YANDEX_RESEARCH_MODEL || process.env.YANDEX_MODEL || "aliceai-llm/latest"}` : process.env.OPENAI_RESEARCH_MODEL || "gpt-5-mini"
   };
@@ -47,7 +50,8 @@ function withCors(request: Request | undefined, response: Response): Response {
 
 export async function GET(request?: Request) {
   if (request && !allowedOrigin(request)) return reply("Источник запроса не разрешён.", 403);
-  return withCors(request, Response.json({ configured: providerConfig().configured, provider: providerConfig().yandex ? "yandex" : "openai", materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: "trusted_web_search", sourcesOnRequest: true }, { headers: { "Cache-Control": "no-store" } }));
+  const provider = providerConfig();
+  return withCors(request, Response.json({ configured: provider.configured, provider: provider.gigachat ? "gigachat" : provider.yandex ? "yandex" : "openai", materialsApproved: process.env.TEACHER_MATERIALS_APPROVED === "true", sourceMode: provider.gigachat ? "model_knowledge" : "trusted_web_search", sourcesOnRequest: !provider.gigachat }, { headers: { "Cache-Control": "no-store" } }));
 }
 
 export async function OPTIONS(request: Request) {
@@ -101,7 +105,7 @@ async function handlePost(request: Request) {
     const question = messages.at(-1)!.content;
     const wantsSources = requestsBibliography(question);
     const previous = messages.at(-2);
-    if (!isSummary && asksForSources(question) && previous?.role === "assistant") {
+    if (!provider.gigachat && !isSummary && asksForSources(question) && previous?.role === "assistant") {
       const sources = receiptSources(body.sourceReceipt, previous.content);
       if (sources.length) {
         const answer = "Вот публикации, на коих основан мой предыдущий ответ.";
@@ -109,9 +113,11 @@ async function handlePost(request: Request) {
       }
       return json({ answer: "Для прежнего ответа проверяемый список не сохранён. Задай исторический вопрос заново, дабы я сверил свидетельства и назвал источники." });
     }
-    if (!isSummary && asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
+    if (!provider.gigachat && !isSummary && asksForSources(question) && !previous) return json({ answer: "Уточни, о каком событии моего правления нужна литература." });
     const input = messages.map(({ role, content }) => ({ role, content }));
-    const upstream = (payload: object, timeout: number) => fetch(provider.url, {
+    const upstream = (payload: object, timeout: number) => provider.gigachat
+      ? gigachatRequest(payload as Parameters<typeof gigachatRequest>[0], AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]))
+      : fetch(provider.url, {
       method: "POST",
       headers: { Authorization: `${provider.yandex ? "Api-Key" : "Bearer"} ${provider.key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: provider.model, store: false, ...payload }),
@@ -133,36 +139,43 @@ async function handlePost(request: Request) {
       if (data.status !== "completed" || !summary) return reply("Итог не прошёл проверку формата. Попробуй ещё раз.", 502);
       return json({ summary });
     }
-    const domainGroups = provider.yandex ? researchDomainGroups.flatMap(group => Array.from({ length: Math.ceil(group.length / 5) }, (_, i) => group.slice(i * 5, i * 5 + 5))) : researchDomainGroups;
-    const searchResponses = await Promise.all(domainGroups.map(domains => upstream({
-      model: provider.researchModel,
-      ...(!provider.yandex ? { reasoning: { effort: "low" } } : {}),
-      instructions: researchInstructions,
-      input,
-      tools: [{ type: "web_search", filters: { allowed_domains: domains }, search_context_size: "medium" }],
-      tool_choice: "required", ...(!provider.yandex ? { include: ["web_search_call.action.sources"] } : {}), max_output_tokens: 3000
-    }, 38000)));
-    let response = searchResponses.find(result => !result.ok) || searchResponses[0];
-    let research;
-    if (response.ok) {
-      const data = await Promise.all(searchResponses.map(result => result.json()));
-      if (data.some(result => result.status !== "completed")) {
-        console.warn("research incomplete", data.map(result => ({ status: result.status, reason: result.incomplete_details?.reason })));
-        return reply("Поиск не завершён. Вопрос сохранён — попробуй ещё раз.", 502);
+    let response: Response;
+    let research: { text: string; sources: { id: string; title: string; url: string }[] } | undefined;
+    if (provider.gigachat) {
+      response = await upstream({ instructions: gigachatInstructions, input,
+        max_output_tokens: 1800, text: { format: gigachatAnswerFormat }
+      }, 25000);
+    } else {
+      const domainGroups = provider.yandex ? researchDomainGroups.flatMap(group => Array.from({ length: Math.ceil(group.length / 5) }, (_, i) => group.slice(i * 5, i * 5 + 5))) : researchDomainGroups;
+      const searchResponses = await Promise.all(domainGroups.map(domains => upstream({
+        model: provider.researchModel,
+        ...(!provider.yandex ? { reasoning: { effort: "low" } } : {}),
+        instructions: researchInstructions,
+        input,
+        tools: [{ type: "web_search", filters: { allowed_domains: domains }, search_context_size: "medium" }],
+        tool_choice: "required", ...(!provider.yandex ? { include: ["web_search_call.action.sources"] } : {}), max_output_tokens: 3000
+      }, 38000)));
+      response = searchResponses.find(result => !result.ok) || searchResponses[0];
+      if (response.ok) {
+        const data = await Promise.all(searchResponses.map(result => result.json()));
+        if (data.some(result => result.status !== "completed")) {
+          console.warn("research incomplete", data.map(result => ({ status: result.status, reason: result.incomplete_details?.reason })));
+          return reply("Поиск не завершён. Вопрос сохранён — попробуй ещё раз.", 502);
+        }
+        const parts = data.map(result => extractResearch(result, provider.yandex));
+        if (parts.every(part => part.text.trim() === "OUT_OF_CONTEXT")) return json({ answer: fixedAnswers.out_of_context });
+        if (parts.every(part => part.text.trim() === "CLARIFICATION")) return json({ answer: fixedAnswers.clarification });
+        const usable = parts.filter(part => part.searched && part.sources.length);
+        const unique = [...new Map(usable.flatMap(part => part.sources).map(source => [source.url, source])).values()];
+        research = { text: usable.map(part => part.text).join("\n\n"), sources: unique.map((source, i) => ({ ...source, id: `web-${i + 1}` })) };
+        if (!independentSources(research.sources)) return json({ answer: fixedAnswers.insufficient_context });
+        response = await upstream({
+          instructions: instructions(research.text, research.sources),
+          input, max_output_tokens: 1800,
+          ...(provider.model.startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {}),
+          text: { format: answerFormatFor(research.sources.map(source => source.id)) }
+        }, 17000);
       }
-      const parts = data.map(result => extractResearch(result, provider.yandex));
-      if (parts.every(part => part.text.trim() === "OUT_OF_CONTEXT")) return json({ answer: fixedAnswers.out_of_context });
-      if (parts.every(part => part.text.trim() === "CLARIFICATION")) return json({ answer: fixedAnswers.clarification });
-      const usable = parts.filter(part => part.searched && part.sources.length);
-      const unique = [...new Map(usable.flatMap(part => part.sources).map(source => [source.url, source])).values()];
-      research = { text: usable.map(part => part.text).join("\n\n"), sources: unique.map((source, i) => ({ ...source, id: `web-${i + 1}` })) };
-      if (!independentSources(research.sources)) return json({ answer: fixedAnswers.insufficient_context });
-      response = await upstream({
-        instructions: instructions(research.text, research.sources),
-        input, max_output_tokens: 1800,
-        ...(provider.model.startsWith("gpt-5") ? { reasoning: { effort: "low" } } : {}),
-        text: { format: answerFormatFor(research.sources.map(source => source.id)) }
-      }, 17000);
     }
     if (!response.ok) {
       if (response.status === 401) return reply("Сервис ИИ не принял ключ доступа. Попроси учителя проверить ключ выбранного ИИ на сервере.", 503);
@@ -176,7 +189,7 @@ async function handlePost(request: Request) {
     const data = await response.json();
     const text = (data.output || []).flatMap((item: { type: string; content?: { type: string; text?: string }[] }) => item.type === "message" ? (item.content || []).filter(c => c.type === "output_text").map(c => c.text || "") : []).join("\n").trim();
     if (!text || data.status !== "completed") return reply("ИИ не завершил ответ. Попробуй сформулировать вопрос короче.", 502);
-    const checked = checkedReply(text, research?.sources.map(source => source.id) || []);
+    const checked = checkedReply(text, research?.sources.map(source => source.id) || [], provider.gigachat);
     if (!checked) return reply("Ответ не прошёл проверку формата. Вопрос сохранён — попробуй ещё раз.", 502);
     const sources = (research?.sources || []).filter(source => checked.sourceIds.includes(source.id));
     if (!checked.sourceIds.length) return json({ answer: checked.answer });

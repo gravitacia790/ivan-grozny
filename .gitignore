@@ -12,6 +12,7 @@ next-env.d.ts
 .DS_Store
 /API*
 *.pem
+.local-certs/
 __pycache__/
 *.pyc
 .vercel

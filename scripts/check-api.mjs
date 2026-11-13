@@ -8,11 +8,11 @@ import { randomUUID } from "node:crypto";
 import ts from "typescript";
 const temp = await mkdtemp(join(tmpdir(), "ivan-api-check-"));
 const originalFetch = globalThis.fetch;
-const envNames = ["AI_PROVIDER", "YANDEX_API_KEY", "YANDEX_FOLDER_ID", "YANDEX_MODEL", "YANDEX_RESEARCH_MODEL", "SOURCE_RECEIPT_SECRET", "OPENAI_API_KEY", "TEACHER_MATERIALS_APPROVED", "CHAT_ALLOWED_ORIGINS"];
+const envNames = ["GIGACHAT_CREDENTIALS", "GIGACHAT_SCOPE", "GIGACHAT_MODEL", "AI_PROVIDER", "YANDEX_API_KEY", "YANDEX_FOLDER_ID", "YANDEX_MODEL", "YANDEX_RESEARCH_MODEL", "SOURCE_RECEIPT_SECRET", "OPENAI_API_KEY", "TEACHER_MATERIALS_APPROVED", "CHAT_ALLOWED_ORIGINS"];
 const originalEnv = envNames.map(name => process.env[name]);
 try {
-  for (const [source, name] of [["lib/lesson-summary.ts", "lesson-summary"], ["lib/historical-sources.ts", "historical-sources"], ["lib/source-policy.ts", "source-policy"], ["lib/research.ts", "research"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
-    const text = (await readFile(source, "utf8")).replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research|lesson-summary)"/g, '"./$1.mjs"');
+  for (const [source, name] of [["lib/gigachat.ts", "gigachat"], ["lib/lesson-summary.ts", "lesson-summary"], ["lib/historical-sources.ts", "historical-sources"], ["lib/source-policy.ts", "source-policy"], ["lib/research.ts", "research"], ["lib/instructions.ts", "instructions"], ["app/api/chat/route.ts", "route"]]) {
+    const text = (await readFile(source, "utf8")).replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research|lesson-summary|gigachat)"/g, '"./$1.mjs"');
     await writeFile(join(temp, `${name}.mjs`), ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
   }
   const api = await import(pathToFileURL(join(temp, "route.mjs")));
@@ -176,7 +176,81 @@ try {
   assert.equal((await api.POST(request(completed, {mode:"summary"}))).status, 503);
   delete process.env.YANDEX_FOLDER_ID;
   assert.equal((await api.POST(request(question))).status, 503);
-  console.log("API checks passed: forced trusted web search, two hosts, no fabricated references, hidden bibliography, requested exact bibliography, signed provenance, validation/CORS/rate limits, lesson summaries for both providers and upstream failures.");
+  // A fresh route instance isolates these checks from the per-minute classroom ceiling.
+  const gigaApi = await import(pathToFileURL(join(temp, "route.mjs")).href + "?gigachat");
+  process.env.AI_PROVIDER = "gigachat";
+  delete process.env.YANDEX_FOLDER_ID;
+  delete process.env.YANDEX_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  process.env.GIGACHAT_CREDENTIALS = "synthetic-gigachat-credential";
+  delete process.env.GIGACHAT_SCOPE;
+  delete process.env.GIGACHAT_MODEL;
+  let authCalls = 0, gigaCalls = 0;
+  let finishReason = "stop", generatedStatus = 200;
+  let generated = packed("in_context", answer, []);
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith("/oauth")) {
+      authCalls++;
+      assert.equal(options.headers.Authorization, "Basic " + process.env.GIGACHAT_CREDENTIALS);
+      assert.match(options.headers.RqUID, /^[0-9a-f-]{36}$/);
+      assert.equal(new URLSearchParams(options.body).get("scope"), "GIGACHAT_API_PERS");
+      return Response.json({access_token:"synthetic-access-token", expires_at:Date.now()+1800000});
+    }
+    const payload = JSON.parse(options.body);
+    assert.equal(url, "https://api.giga.chat/v1/chat/completions");
+    assert.equal(options.headers.Authorization, "Bearer synthetic-access-token");
+    assert.equal(payload.model, "GigaChat-3-Ultra");
+    assert.equal(payload.temperature, 0.5);
+    assert.equal(payload.messages[0].content, generated === JSON.stringify(card) ? summaryModule.summaryInstructions : policy.gigachatInstructions);
+    assert.equal(payload.messages[0].role, "system");
+    assert.deepEqual(payload.messages.slice(1), generated === JSON.stringify(card) ? completed : question);
+    assert.equal(payload.response_format.type, "json_schema");
+    assert.equal(payload.response_format.strict, true);
+    assert.equal(payload.tools, undefined);
+    assert.equal(payload.store, undefined);
+    assert.ok(options.signal instanceof AbortSignal);
+    gigaCalls++;
+    return generatedStatus === 200 ? Response.json({choices:[{message:{content:generated},finish_reason:finishReason}]}) : new Response(null, {status:generatedStatus});
+  };
+  assert.equal((await (await gigaApi.GET()).json()).provider, "gigachat");
+  const gigaResult = await (await gigaApi.POST(request(question))).json();
+  assert.equal(gigaResult.answer, answer);
+  assert.equal(gigaResult.sourceReceipt, undefined);
+  assert.equal(gigaResult.sources, undefined);
+  const gigaStatus = await (await gigaApi.GET()).json();
+  assert.equal(gigaStatus.configured, true);
+  assert.equal(gigaStatus.sourceMode, "model_knowledge");
+  assert.equal(gigaStatus.sourcesOnRequest, false);
+  assert.match(policy.gigachatInstructions, /1000 символов/);
+  assert.match(policy.gigachatInstructions, /XVI–XVII/);
+  assert.equal(policy.checkedReply(packed("in_context", answer, []), [] ).answer, policy.fixedAnswers.insufficient_context);
+  assert.equal(policy.checkedReply(packed("in_context", answer, []), [], true).answer, answer);
+  assert.equal(policy.checkedReply(packed("in_context", "а".repeat(1001), []), [], true), null);
+  assert.equal(policy.checkedReply(packed("in_context", "а".repeat(1000), []), [], true).answer.length, 1000);
+  assert.equal(policy.checkedReply(packed("in_context", answer, ids), ids, true), null);
+  assert.doesNotMatch(policy.checkedReply(packed("insufficient_context"), [], true).answer, /найденных/);
+  generated = JSON.stringify(card);
+  assert.deepEqual((await (await gigaApi.POST(request(completed, {mode:"summary"}))).json()).summary, card);
+  assert.equal(authCalls, 1); // OAuth token is reused, not exchanged for every answer.
+  generated = packed("in_context", answer, ["invented"]);
+  assert.equal((await gigaApi.POST(request(question))).status, 502);
+  generated = packed("in_context", answer, []);
+  finishReason = "length";
+  assert.equal((await gigaApi.POST(request(question))).status, 502);
+  finishReason = "stop";
+  generatedStatus = 401;
+  assert.equal((await gigaApi.POST(request(question))).status, 503);
+  generatedStatus = 429;
+  assert.equal((await gigaApi.POST(request(question))).status, 503);
+  assert.equal(authCalls, 2); // A rejected token is discarded without retrying generation.
+  process.env.GIGACHAT_CREDENTIALS = "rotated-synthetic-credential";
+  globalThis.fetch = async url => { assert.ok(url.endsWith("/oauth")); return new Response(null, {status:401}); };
+  assert.equal((await gigaApi.POST(request(question))).status, 503);
+  delete process.env.GIGACHAT_CREDENTIALS;
+  assert.equal((await gigaApi.POST(request(question))).status, 503);
+  assert.equal((await (await gigaApi.GET()).json()).configured, false);
+  assert.equal(gigaCalls, 6);
+  console.log("API checks passed: forced trusted web search, two hosts, no fabricated references, hidden bibliography, requested exact bibliography, signed provenance, validation/CORS/rate limits, lesson summaries, GigaChat-only requests without Yandex/OpenAI credentials, system prompt, 1000-character limit, OAuth/cache/rotation/transport, and upstream failures.");
 } finally {
   globalThis.fetch=originalFetch;
   envNames.forEach((name,i) => {if(originalEnv[i] === undefined) delete process.env[name];else process.env[name]=originalEnv[i]});

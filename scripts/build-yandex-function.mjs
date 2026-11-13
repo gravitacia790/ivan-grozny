@@ -8,7 +8,7 @@ const output = join(root, ".yandex-function");
 await mkdir(output, { recursive: true });
 // Same independent modules and import mapping used by check-api.mjs.
 for (const [source, name] of [
-  ["lib/lesson-summary.ts", "lesson-summary"],
+  ["lib/gigachat.ts", "gigachat"], ["lib/lesson-summary.ts", "lesson-summary"],
   ["lib/historical-sources.ts", "historical-sources"],
   ["lib/source-policy.ts", "source-policy"],
   ["lib/research.ts", "research"],
@@ -16,7 +16,7 @@ for (const [source, name] of [
   ["app/api/chat/route.ts", "route"],
 ]) {
   const text = (await readFile(join(root, source), "utf8"))
-    .replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research|lesson-summary)"/g, '"./$1.js"');
+    .replace(/"(?:@\/lib\/|\.\/)(instructions|historical-sources|source-policy|research|lesson-summary|gigachat)"/g, '"./$1.js"');
   const result = ts.transpileModule(text, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   });
