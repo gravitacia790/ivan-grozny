@@ -1,6 +1,32 @@
 # Зафиксированное состояние сайта
 
-## GigaChat — 13 ноября 2026, локально, без поиска
+## GigaChat опубликован — 13 ноября 2026
+
+По запросу пользователя коммит `b3a3443` отправлен в GitHub/main и размещён
+в действующей Cloud Functions `d4e15h0kkhld9p24dqgn`. Новая версия
+`d4etl0ro393eo7rpjvdd`, статус ACTIVE, тег `$latest`.
+Адрес сайта прежний: https://gravitacia790.github.io/ivan-grozny/ .
+Статический интерфейс не менялся и уже обращается к этой функции;
+новая публикация gh-pages не потребовалась.
+
+В production теперь GigaChat-3-Ultra, без поиска Яндекса/OpenAI, с новым
+царским системным промптом. Ключ добавлен в новую версию прежнего Lockbox
+`e6q1h1qjjs5bt7rh0hfn`: `e6qot2080ecauatk66l9`, запись GIGACHAT_CREDENTIALS.
+Функции передаётся только эта запись; ключи Яндекса/OpenAI не подключены.
+Значение ключа не выводилось, не входит в Git и пакет функции.
+Сохранены Node.js 22, 512 MB, таймаут 90 секунд, concurrency 4, ограничения
+1 экземпляр/4 запроса на зону, provisioned instances 0, логирование выключено.
+TLS использует CA из актуальной среды Cloud Functions; NODE_EXTRA_CA_CERTS
+в настройках версии не переопределялся.
+
+Перед коммитом прошли typecheck, test:api, test:yandex-function и production build.
+Публичные GET функции и сайт вернули 200; GET подтвердил configured=true,
+provider=gigachat, sourceMode=model_knowledge, sourcesOnRequest=false.
+OPTIONS — 204, посторонний Origin — 403. Живая генерация после публикации
+агентом не запускалась; качество ответа модели этим деплоем не проверено.
+Предыдущая версия `d4eaqdviu0t0c5g0abmb` с Яндексом сохранена для отката.
+
+## GigaChat — локальная подготовка 13 ноября 2026
 
 По уточнённому запросу пользователя режим `AI_PROVIDER=gigachat` вызывает только
 GigaChat-3-Ultra (температура 0.5, как в кабинете). Поиск Яндекса/OpenAI отключён;

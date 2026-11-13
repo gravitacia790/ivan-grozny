@@ -1,5 +1,33 @@
 # Сервер чата в Яндекс Облаке
 
+## Обновление 13 ноября 2026: GigaChat
+
+Действующая функция теперь использует только GigaChat-3-Ultra, без внешнего
+поиска Яндекса/OpenAI. Исходники `b3a3443`, версия `d4etl0ro393eo7rpjvdd`,
+ACTIVE / `$latest`. Прежняя версия `d4eaqdviu0t0c5g0abmb` сохранена.
+Ключ в Lockbox `e6q1h1qjjs5bt7rh0hfn`, версия `e6qot2080ecauatk66l9`,
+запись `GIGACHAT_CREDENTIALS`; в окружение подключается только эта запись.
+Статический интерфейс и адрес сервера прежние.
+
+Для повторного развёртывания в команде ниже заменить `--environment` на:
+
+```text
+AI_PROVIDER=gigachat,GIGACHAT_MODEL=GigaChat-3-Ultra,GIGACHAT_SCOPE=GIGACHAT_API_PERS,TEACHER_MATERIALS_APPROVED=false,CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io
+```
+
+Параметр `--secret`:
+
+```text
+id=e6q1h1qjjs5bt7rh0hfn,version-id=e6qot2080ecauatk66l9,key=GIGACHAT_CREDENTIALS,environment-variable=GIGACHAT_CREDENTIALS
+```
+
+Актуальная среда Node.js 22 в Cloud Functions уже содержит Russian Trusted
+Root CA. Не переопределять NODE_EXTRA_CA_CERTS в настройках версии:
+[описание среды](https://yandex.cloud/ru/docs/functions/concepts/runtime/environment-variables).
+Лимиты ресурсов оставлены прежними. GET подтвердил GigaChat без поиска,
+CORS проверен; платная генерация агентом не запускалась.
+Ниже — история размещения 12 ноября и прежняя конфигурация Яндекса.
+
 Перенос завершён 12 ноября 2026 года (Москва). Интерфейс остаётся на
 https://gravitacia790.github.io/ivan-grozny/ и обращается напрямую к
 https://functions.yandexcloud.net/d4e15h0kkhld9p24dqgn .

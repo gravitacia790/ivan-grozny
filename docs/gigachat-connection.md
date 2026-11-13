@@ -57,7 +57,9 @@ AI_PROVIDER=gigachat python3 scripts/with-local-key.py dev
 
 Ранее живые OAuth и GET /models прошли из Python и Node.js. Живую генерацию
 не запускали; качество ответов и соблюдение исторической основы не проверены.
-Публичный сайт не переключён, публикация не выполнялась.
+13 ноября по отдельному запросу пользователя публичный сервер переключён на GigaChat.
+Коммит b3a3443, Cloud Functions d4etl0ro393eo7rpjvdd (ACTIVE).
+Публичный GET подтвердил GigaChat без поиска; подробности в docs/yandex-deployment.md.
 
 После отключения поиска прошли typecheck, test:api, test:yandex-function и
 production build. Мок-тесты проверяют работу без ключей других провайдеров,
