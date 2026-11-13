@@ -1,5 +1,18 @@
 # GigaChat — самостоятельные ответы
 
+## Исправление подключения 13 ноября
+
+Чат восстановлен. Код d8e82fb, Cloud Functions d4eptnbvdo44g1plu7tm.
+Тайм-аут был вызван зависанием TLS-рукопожатия по умолчанию с OAuth Сбера
+из среды функции. Пробы показали успешный TCP и успешный TLS 1.2 к тому же
+адресу. Поэтому production использует GIGACHAT_TRANSPORT=https: только для
+ngw.devices.sberbank.ru:9443/api/v2/oauth задаётся maxVersion=TLSv1.2.
+Проверка сертификатов включена; API модели сохраняет обычные TLS-настройки.
+VM, новая сеть и смена ключа не потребовались. OAuth/models из функции — 200;
+полный публичный запрос приветствия — 200 за 4,4 с. Историческая точность
+ответа этим техническим тестом не подтверждается.
+
+
 13 ноября 2026 года. По уточнённому запросу пользователя `AI_PROVIDER=gigachat`
 вызывает только GigaChat: без поиска Яндекса/OpenAI и без их ключей.
 Обычный ответ и итог урока формируются через GigaChat-3-Ultra — модель,
@@ -38,7 +51,8 @@ AI_PROVIDER=gigachat python3 scripts/with-local-key.py dev
 Внешний `../GigaChat API.txt` читается только в память процесса. В этом режиме
 `API.rtf` не читается, запрос определения каталога Яндекса не выполняется.
 На сервере задаётся секрет `GIGACHAT_CREDENTIALS`, необязательные настройки:
-`GIGACHAT_SCOPE=GIGACHAT_API_PERS`, `GIGACHAT_MODEL=GigaChat-3-Ultra`.
+`GIGACHAT_SCOPE=GIGACHAT_API_PERS`, `GIGACHAT_MODEL=GigaChat-3-Ultra`,
+`GIGACHAT_TRANSPORT=https` (обязателен для исправления TLS в Cloud Functions).
 
 Локальный официальный CA: `.local-certs/gigachat-ca.pem` (игнорируется Git).
 Скрипт запуска задаёт NODE_EXTRA_CA_CERTS до запуска Node.js. Проверка TLS
@@ -68,7 +82,7 @@ production build. Мок-тесты проверяют работу без кл�
 перезапущен на http://127.0.0.1:3003; GET подтвердил
 configured=true/provider=gigachat/sourceMode=model_knowledge/sourcesOnRequest=false.
 
-## Сбой авторизации из Cloud Functions (13 ноября)
+## История: сбой авторизации до исправления (13 ноября)
 
 Чат пока не работает: серверная диагностика показывает тайм-аут соединения
 на этапе OAuth, до ответа Сбера. Локально тот же ключ принят, модели и остаток

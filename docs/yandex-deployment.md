@@ -1,5 +1,16 @@
 # Сервер чата в Яндекс Облаке
 
+## Исправлено TLS-соединение с GigaChat — 13 ноября
+
+Текущий код d8e82fb, версия d4eptnbvdo44g1plu7tm (ACTIVE / $latest).
+В --environment обязательно добавить GIGACHAT_TRANSPORT=https. Этот
+транспорт использует TLS 1.2 только для OAuth Сбера: TLS по умолчанию из
+Cloud Functions зависал, хотя TCP проходил. API модели сохраняет обычное TLS.
+Ключ, служебный аккаунт и Lockbox прежние. VM и новая VPC не нужны.
+OAuth/models из функции вернули 200, полный публичный POST — 200 за 4,4 с.
+TLS-проверка сертификатов не отключалась. Подробности в docs/site-state.md.
+
+
 ## Обновление 13 ноября 2026: GigaChat
 
 Действующая функция теперь использует только GigaChat-3-Ultra, без внешнего
@@ -12,7 +23,7 @@ ACTIVE / `$latest`. Прежняя версия `d4eaqdviu0t0c5g0abmb` сохр�
 Для повторного развёртывания в команде ниже заменить `--environment` на:
 
 ```text
-AI_PROVIDER=gigachat,GIGACHAT_MODEL=GigaChat-3-Ultra,GIGACHAT_SCOPE=GIGACHAT_API_PERS,TEACHER_MATERIALS_APPROVED=false,CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io
+AI_PROVIDER=gigachat,GIGACHAT_MODEL=GigaChat-3-Ultra,GIGACHAT_SCOPE=GIGACHAT_API_PERS,GIGACHAT_TRANSPORT=https,TEACHER_MATERIALS_APPROVED=false,CHAT_ALLOWED_ORIGINS=https://gravitacia790.github.io
 ```
 
 Параметр `--secret`:
