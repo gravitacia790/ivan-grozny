@@ -1,4 +1,4 @@
-// Authenticated CLI invocation only; OAuth/models do not generate text.
+// Direct Cloud API diagnostic event; OAuth/models do not generate text.
 const { randomUUID } = require("node:crypto");
 const { gigachatFetch } = require("./gigachat.js");
 exports.checkAccess = async function checkAccess() {
