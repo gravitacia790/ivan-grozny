@@ -2,6 +2,10 @@
 const api = require("./route.js");
 
 exports.handler = async function handler(event) {
+  // HTTP requests always have httpMethod; diagnostics require a direct Cloud API invocation.
+  if (event?.diagnostic === "gigachat-access" && Object.keys(event).length === 1) {
+    return require("./check-access.js").checkAccess();
+  }
   const method = String(event?.httpMethod || "").toUpperCase();
   if (!["GET", "POST", "OPTIONS"].includes(method)) {
     return { statusCode: 405, headers: { Allow: "GET, POST, OPTIONS" }, body: "", isBase64Encoded: false };

@@ -23,5 +23,6 @@ for (const [source, name] of [
   await writeFile(join(output, `${name}.js`), result.outputText);
 }
 await cp(join(root, "deployment/yandex-function/handler.js"), join(output, "handler.js"));
+await cp(join(root, "deployment/yandex-function/check-access.js"), join(output, "check-access.js"));
 await writeFile(join(output, "package.json"), JSON.stringify({ private: true, type: "commonjs" }));
 console.log("Yandex Function prepared in .yandex-function/: existing chat route, HTTPS adapter, no runtime dependencies or secrets.");

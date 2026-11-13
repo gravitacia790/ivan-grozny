@@ -27,4 +27,22 @@ assert.equal(encoded.statusCode, 200);
 assert.deepEqual(JSON.parse(encoded.body), JSON.parse(plain.body));
 assert.ok(JSON.parse(encoded.body).answer);
 assert.equal((await handler({ httpMethod: "POST", headers, body: "{broken" })).statusCode, 400);
+process.env.GIGACHAT_CREDENTIALS = "synthetic-giga-key";
+const tlsFailure = Object.assign(new TypeError("fetch failed"), { cause: { code: "SELF_SIGNED_CERT_IN_CHAIN" } });
+globalThis.fetch = async () => { throw tlsFailure; };
+const diagnostic = await handler({ diagnostic: "gigachat-access" });
+assert.equal(diagnostic.failure.stage, "oauth");
+assert.equal(diagnostic.failure.code, "SELF_SIGNED_CERT_IN_CHAIN");
+assert.ok(!JSON.stringify(diagnostic).includes(process.env.GIGACHAT_CREDENTIALS));
+// Public HTTP input cannot select the direct Cloud API diagnostic route.
+assert.equal((await handler({ httpMethod: "GET", headers, diagnostic: "gigachat-access" })).statusCode, 200);
+let accessCalls = 0;
+globalThis.fetch = async () => ++accessCalls === 1
+  ? Response.json({ access_token: "synthetic-token" })
+  : Response.json({ data: [{ id: "GigaChat-3-Ultra" }] });
+const access = await handler({ diagnostic: "gigachat-access" });
+assert.equal(access.oauthStatus, 200);
+assert.equal(access.modelsStatus, 200);
+assert.equal(access.selectedModelAvailable, true);
+assert.equal(accessCalls, 2);
 console.log("Yandex HTTPS transport checks passed: status, CORS, preflight, method rejection, UTF-8/base64 requests, invalid JSON; no model calls.");
